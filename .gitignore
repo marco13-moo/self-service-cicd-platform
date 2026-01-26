@@ -1,0 +1,18 @@
+# OS artifacts
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+
+# Build outputs
+bin/
+dist/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Logs
+*.log
