@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: node-ci-template
+spec:
+  entrypoint: node-ci
+  templates:
+    - name: node-ci
+      container:
+        image: node:20
+        command: [sh, -c]
+        args:
+          - |
+            echo "Installing dependencies"
+            npm install
+
+            echo "Running tests"
+            npm test
+
+            echo "Build step"
+            npm run build
+
+            echo "CI workflow complete"
