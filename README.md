@@ -1,37 +1,24 @@
-# Self-Service CI/CD Platform
+## Architecture Overview
 
-A production-oriented control plane for dynamically provisioning CI/CD pipelines
-and ephemeral development environments across repositories.
+This project implements a self-service CI/CD control plane that allows
+developers to register repositories and automatically receive
+infrastructure-backed pipelines.
 
-## Overview
+The repository is structured to reflect intentional architectural
+boundaries:
 
-This project implements a self-service CI/CD platform that allows development teams
-to onboard repositories, generate pipelines dynamically based on project characteristics,
-and provision isolated, short-lived environments on demand.
+- `cmd/` — binary entrypoints and lifecycle management
+- `internal/api/` — HTTP routing, API contracts, and domain modeling
+- `internal/providers/` — source control abstractions (GitHub, GitLab, etc)
+- `internal/server/` — HTTP server lifecycle and graceful shutdown
+- `docs/adr/` — architectural decision records
 
-The system is designed as a **control plane**, decoupled from execution engines
-(e.g. Argo Workflows), and emphasizes explicit trust boundaries, extensibility,
-and operational clarity.
+Early scaffold phases were intentionally collapsed to accelerate validation
+of runtime behavior. Architectural intent is preserved through explicit
+interfaces, layering boundaries, and ADRs.
 
-## Project Status
-
-This repository is under active development.
-All architectural decisions are documented, and the system is intended to evolve
-into a fully functional open-source platform rather than a demonstration artifact.
-
-## Core Principles
-
-- Control plane / execution plane separation
-- Explicit architecture over implicit convention
-- Infrastructure as code
-- Auditable and reproducible workflows
-- Open design trade-offs
-
-## Non-Goals (Initial Scope)
-
-- Full multi-tenant SaaS hosting
-- Opinionated application frameworks
-- Proprietary CI/CD engines
-- “Zero-config” abstractions that obscure behavior
-
-These may be revisited in future milestones.
+Future phases introduce:
+- GitHub App authentication
+- Webhook ingestion
+- Dynamic pipeline generation
+- Ephemeral environment provisioning via Terraform and Argo Workflows
