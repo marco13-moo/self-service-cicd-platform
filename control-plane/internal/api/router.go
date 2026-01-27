@@ -2,19 +2,31 @@ package api
 
 import (
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
-func Router() http.Handler {
+// NewRouter wires the HTTP routes for the control-plane API.
+func NewRouter(logger *zap.Logger) http.Handler {
+	store := NewServiceStore()
+	handlers := NewHandlers(store, logger)
+
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+	// Platform endpoints
+	mux.HandleFunc("/healthz", handlers.Healthz)
+	mux.HandleFunc("/readyz", handlers.Readyz)
 
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ready"))
+	// API v1
+	mux.HandleFunc("/api/v1/services", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			handlers.CreateService(w, r)
+		case http.MethodGet:
+			handlers.ListServices(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	return mux

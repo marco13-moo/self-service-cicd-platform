@@ -10,11 +10,16 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func New(address string, handler http.Handler, readTimeout, writeTimeout time.Duration) *Server {
+func New(
+	address string,
+	handler http.Handler,
+	readTimeout time.Duration,
+	writeTimeout time.Duration,
+) *Server {
 	return &Server{
 		httpServer: &http.Server{
 			Addr:         address,
-			Handler:      handler,
+			Handler:      handler, // router goes here
 			ReadTimeout:  readTimeout,
 			WriteTimeout: writeTimeout,
 		},
