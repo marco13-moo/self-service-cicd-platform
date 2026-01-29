@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: env-destroy-template
+spec:
+  entrypoint: delete-namespace
+  serviceAccountName: env-manager
+  arguments:
+    parameters:
+      - name: env_name
+  templates:
+    - name: delete-namespace
+      container:
+        image: bitnami/kubectl:latest
+        command: [sh, -c]
+        args:
+          - |
+            kubectl delete namespace {{workflow.parameters.env_name}} --ignore-not-found
