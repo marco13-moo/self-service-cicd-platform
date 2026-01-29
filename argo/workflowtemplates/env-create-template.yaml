@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: env-create-template
+spec:
+  entrypoint: create-namespace
+  serviceAccountName: env-manager
+  arguments:
+    parameters:
+      - name: env_name
+      - name: service
+      - name: expires_at
+  templates:
+    - name: create-namespace
+      container:
+        image: bitnami/kubectl:latest
+        command: [sh, -c]
+        args:
+          - |
+            set -e
+            kubectl create namespace {{workflow.parameters.env_name}}
+            kubectl label namespace {{workflow.parameters.env_name}} \
+              platform.example/environment={{workflow.parameters.env_name}} \
+              platform.example/service={{workflow.parameters.service}} \
+              platform.example/expires-at={{workflow.parameters.expires_at}} \
+              --overwrite
