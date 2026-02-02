@@ -13,6 +13,7 @@ spec:
       labels:
         app: control-plane
     spec:
+      serviceAccountName: control-plane
       containers:
         - name: control-plane
           image: control-plane:phase7
