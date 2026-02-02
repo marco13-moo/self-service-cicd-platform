@@ -113,7 +113,7 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		ctx = context.Background()
 	}
 
-	if err := h.envOrchestrator.Create(ctx, spec); err != nil {
+	if _, err := h.envOrchestrator.Create(ctx, spec); err != nil {
 		h.logger.Error("failed to create environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -137,7 +137,7 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		ctx = context.Background()
 	}
 
-	if err := h.envOrchestrator.Destroy(ctx, name); err != nil {
+	if _, err := h.envOrchestrator.Destroy(ctx, name); err != nil {
 		h.logger.Error("failed to delete environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

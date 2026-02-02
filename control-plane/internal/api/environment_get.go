@@ -7,41 +7,6 @@ import (
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 )
 
-// EnvironmentSummaryResponse is a read-only, live view of an environment.
-// It is assembled on demand and never persisted.
-type EnvironmentSummaryResponse struct {
-	Environment EnvironmentSpecResponse      `json:"environment"`
-	Workflows   EnvironmentWorkflowsResponse `json:"workflows"`
-}
-
-type EnvironmentSpecResponse struct {
-	Name       string            `json:"name"`
-	Service    string            `json:"service"`
-	TTLSeconds int64             `json:"ttl_seconds"`
-	Parameters map[string]string `json:"parameters,omitempty"`
-}
-
-type EnvironmentWorkflowsResponse struct {
-	Create  WorkflowWithStatusResponse  `json:"create"`
-	Destroy *WorkflowWithStatusResponse `json:"destroy,omitempty"`
-	TTL     *WorkflowWithStatusResponse `json:"ttl,omitempty"`
-}
-
-type WorkflowWithStatusResponse struct {
-	Reference WorkflowReferenceResponse `json:"reference"`
-	Status    *WorkflowStatusResponse   `json:"status,omitempty"`
-}
-
-type WorkflowReferenceResponse struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Template  string `json:"template"`
-}
-
-type WorkflowStatusResponse struct {
-	Phase string `json:"phase"`
-}
-
 // GetEnvironment returns a unified, live view of an environment.
 //
 // It:
@@ -68,36 +33,36 @@ func (h *Handler) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 
 	// ---- query live workflow statuses ----
 
-	createStatus, _ := h.orchestrator.GetCreateStatus(ctx, env)
-	ttlStatus, _ := h.orchestrator.GetTTLStatus(ctx, env)
+	createStatus, _ := h.envOrchestrator.GetCreateStatus(ctx, env)
+	ttlStatus, _ := h.envOrchestrator.GetTTLStatus(ctx, env)
 
-	// ---- assemble response ----
+	// ---- assemble response (inline, no extra types) ----
 
-	resp := EnvironmentSummaryResponse{
-		Environment: EnvironmentSpecResponse{
-			Name:       env.Spec.Name,
-			Service:    env.Spec.Service,
-			TTLSeconds: int64(env.Spec.TTL.Seconds()),
-			Parameters: env.Spec.Parameters,
+	resp := map[string]interface{}{
+		"environment": map[string]interface{}{
+			"name":        env.Spec.Name,
+			"service":     env.Spec.Service,
+			"ttl_seconds": int64(env.Spec.TTL.Seconds()),
+			"parameters":  env.Spec.Parameters,
 		},
-		Workflows: EnvironmentWorkflowsResponse{
-			Create: WorkflowWithStatusResponse{
-				Reference: toWorkflowReferenceResponse(env.CreateWorkflow),
-				Status:    toWorkflowStatusResponse(createStatus),
+		"workflows": map[string]interface{}{
+			"create": map[string]interface{}{
+				"reference": ToWorkflowReferenceResponse(env.CreateWorkflow),
+				"status":    toWorkflowStatusResponse(createStatus),
 			},
 		},
 	}
 
 	if env.DestroyWorkflow != nil {
-		resp.Workflows.Destroy = &WorkflowWithStatusResponse{
-			Reference: toWorkflowReferenceResponse(*env.DestroyWorkflow),
+		resp["workflows"].(map[string]interface{})["destroy"] = map[string]interface{}{
+			"reference": ToWorkflowReferenceResponse(*env.DestroyWorkflow),
 		}
 	}
 
 	if env.TTLWorkflow != nil {
-		resp.Workflows.TTL = &WorkflowWithStatusResponse{
-			Reference: toWorkflowReferenceResponse(*env.TTLWorkflow),
-			Status:    toWorkflowStatusResponse(ttlStatus),
+		resp["workflows"].(map[string]interface{})["ttl"] = map[string]interface{}{
+			"reference": ToWorkflowReferenceResponse(*env.TTLWorkflow),
+			"status":    toWorkflowStatusResponse(ttlStatus),
 		}
 	}
 
@@ -109,24 +74,14 @@ func (h *Handler) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 
 // ---- mapping helpers ----
 
-func toWorkflowReferenceResponse(
-	ref orchestrator.WorkflowReference,
-) WorkflowReferenceResponse {
-	return WorkflowReferenceResponse{
-		Name:      ref.Name,
-		Namespace: ref.Namespace,
-		Template:  ref.Template,
-	}
-}
-
 func toWorkflowStatusResponse(
 	status *orchestrator.WorkflowStatusView,
-) *WorkflowStatusResponse {
+) map[string]interface{} {
 	if status == nil {
 		return nil
 	}
 
-	return &WorkflowStatusResponse{
-		Phase: status.Phase,
+	return map[string]interface{}{
+		"phase": status.Phase,
 	}
 }
