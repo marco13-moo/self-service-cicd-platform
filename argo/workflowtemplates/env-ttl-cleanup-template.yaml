@@ -3,19 +3,28 @@ kind: WorkflowTemplate
 metadata:
   name: env-ttl-cleanup-template
 spec:
+  entrypoint: cleanup
   arguments:
     parameters:
-    - name: env_name
-    - name: expires_at
+      - name: env_name
+      - name: expires_at
   templates:
-  - name: cleanup
-    script:
-      image: alpine
-      command: [sh]
-      source: |
-        now=$(date +%s)
-        expiry=$(date -d "{{inputs.parameters.expires_at}}" +%s)
+    - name: cleanup
+      script:
+        image: bitnami/kubectl:1.29
+        command: [sh]
+        source: |
+          set -e
 
-        if [ "$now" -ge "$expiry" ]; then
-          kubectl delete namespace {{inputs.parameters.env_name}}
-        fi
+          echo "Checking TTL for environment: {{workflow.parameters.env_name}}"
+          echo "Expires at: {{workflow.parameters.expires_at}}"
+
+          now=$(date -u +%s)
+          expiry=$(date -u -d "{{workflow.parameters.expires_at}}" +%s)
+
+          if [ "$now" -ge "$expiry" ]; then
+            echo "TTL expired, deleting namespace {{workflow.parameters.env_name}}"
+            kubectl delete namespace {{workflow.parameters.env_name}} --ignore-not-found
+          else
+            echo "Environment not expired yet"
+          fi

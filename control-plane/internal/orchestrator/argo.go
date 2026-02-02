@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -91,6 +92,11 @@ func (a *ArgoExecutor) submitFromTemplate(
 
 	cmd := exec.CommandContext(ctx, "argo", args...)
 
+	// 🔍 PHASE-6 DIAGNOSTIC (INTENTIONAL)
+	// This prints the *exact* CLI invocation so we can see
+	// namespace, template, and parameters with zero ambiguity.
+	fmt.Println("ARGO SUBMIT:", strings.Join(cmd.Args, " "))
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -115,7 +121,7 @@ func (a *ArgoExecutor) submitFromTemplate(
 	ref := &WorkflowReference{
 		Name:        result.Metadata.Name,
 		Namespace:   result.Metadata.Namespace,
-		Template:    "env-create-template",
+		Template:    templateName, // ✅ FIXED (was incorrectly hardcoded)
 		SubmittedAt: time.Now(),
 	}
 
