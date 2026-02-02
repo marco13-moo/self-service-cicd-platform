@@ -4,7 +4,6 @@ metadata:
   name: env-create-template
 spec:
   entrypoint: create-namespace
-  serviceAccountName: env-manager
   arguments:
     parameters:
       - name: env_name
@@ -12,15 +11,18 @@ spec:
       - name: expires_at
   templates:
     - name: create-namespace
-      container:
-        image: bitnami/kubectl:latest
-        command: [sh, -c]
-        args:
-          - |
-            set -e
-            kubectl create namespace {{workflow.parameters.env_name}}
-            kubectl label namespace {{workflow.parameters.env_name}} \
-              platform.example/environment={{workflow.parameters.env_name}} \
-              platform.example/service={{workflow.parameters.service}} \
-              platform.example/expires-at={{workflow.parameters.expires_at}} \
-              --overwrite
+      script:
+        image: bitnami/kubectl:1.29
+        command: [sh]
+        source: |
+          set -e
+
+          echo "Ensuring namespace {{workflow.parameters.env_name}} exists"
+
+          kubectl get namespace {{workflow.parameters.env_name}} \
+            || kubectl create namespace {{workflow.parameters.env_name}}
+
+          kubectl label namespace {{workflow.parameters.env_name}} \
+            service={{workflow.parameters.service}} \
+            managed-by=self-service-cicd \
+            --overwrite

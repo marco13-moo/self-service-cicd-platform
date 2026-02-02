@@ -90,35 +90,41 @@ type CreateEnvironmentRequest struct {
 }
 
 func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info("CreateEnvironment called")
+
 	var req CreateEnvironmentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Error("failed to decode request", zap.Error(err))
 		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 		return
 	}
 
+	h.logger.Info("parsed request",
+		zap.String("name", req.Name),
+		zap.String("service", req.Service),
+		zap.String("ttl", req.TTL),
+	)
+
 	ttl, err := time.ParseDuration(req.TTL)
 	if err != nil {
+		h.logger.Error("invalid ttl", zap.Error(err))
 		http.Error(w, "invalid ttl", http.StatusBadRequest)
 		return
 	}
 
-	spec := orchestrator.EnvironmentSpec{
+	h.logger.Info("submitting environment to orchestrator")
+
+	if _, err := h.envOrchestrator.Create(r.Context(), orchestrator.EnvironmentSpec{
 		Name:    req.Name,
 		Service: req.Service,
 		TTL:     ttl,
-	}
-
-	ctx := r.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	if err := h.envOrchestrator.Create(ctx, spec); err != nil {
+	}); err != nil {
 		h.logger.Error("failed to create environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	h.logger.Info("environment creation accepted")
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -137,7 +143,7 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		ctx = context.Background()
 	}
 
-	if err := h.envOrchestrator.Destroy(ctx, name); err != nil {
+	if _, err := h.envOrchestrator.Destroy(ctx, name); err != nil {
 		h.logger.Error("failed to delete environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
