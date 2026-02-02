@@ -3,8 +3,10 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
+	"time"
 )
 
 /*
@@ -14,6 +16,10 @@ Phase 4 intent:
 - Treat Argo as an external execution plane
 - Submit by reference (WorkflowTemplate), not inline YAML
 - Use the Argo CLI to avoid early SDK coupling
+
+Phase 6 extension:
+- Capture workflow identity at submission time
+- Return immutable workflow references for observability
 
 Intentional limitations:
 - Requires `argo` binary on PATH
@@ -32,13 +38,26 @@ func NewArgoExecutor(namespace string) *ArgoExecutor {
 	}
 }
 
+// ---- internal CLI result types ----
+
+// argoSubmitResult captures the minimal metadata returned by
+// `argo submit -o json`
+type argoSubmitResult struct {
+	Metadata struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"metadata"`
+}
+
+// ---- public submission methods ----
+
 // RunServiceCI selects a language-specific WorkflowTemplate
 // and submits a Workflow derived from it.
 func (a *ArgoExecutor) RunServiceCI(
 	ctx context.Context,
 	language string,
 	params map[string]string,
-) error {
+) (*WorkflowReference, error) {
 
 	templateName := "node-ci-template"
 	if language == "python" {
@@ -50,17 +69,20 @@ func (a *ArgoExecutor) RunServiceCI(
 
 // submitFromTemplate mirrors:
 //
-//	argo submit -n <ns> --from workflowtemplate/<name> -p k=v
+//	argo submit -n <ns> --from workflowtemplate/<name> -p k=v -o json
+//
+// and returns a WorkflowReference for observability.
 func (a *ArgoExecutor) submitFromTemplate(
 	ctx context.Context,
 	templateName string,
 	parameters map[string]string,
-) error {
+) (*WorkflowReference, error) {
 
 	args := []string{
 		"submit",
 		"-n", a.namespace,
 		"--from", fmt.Sprintf("workflowtemplate/%s", templateName),
+		"-o", "json",
 	}
 
 	for k, v := range parameters {
@@ -69,12 +91,33 @@ func (a *ArgoExecutor) submitFromTemplate(
 
 	cmd := exec.CommandContext(ctx, "argo", args...)
 
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("argo submit failed: %w: %s", err, stderr.String())
+		return nil, fmt.Errorf(
+			"argo submit failed: %w: %s",
+			err,
+			stderr.String(),
+		)
 	}
 
-	return nil
+	var result argoSubmitResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return nil, fmt.Errorf(
+			"failed to parse argo submit output: %w",
+			err,
+		)
+	}
+
+	ref := &WorkflowReference{
+		Name:        result.Metadata.Name,
+		Namespace:   result.Metadata.Namespace,
+		Template:    "env-create-template",
+		SubmittedAt: time.Now(),
+	}
+
+	return ref, nil
 }
