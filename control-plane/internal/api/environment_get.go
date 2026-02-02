@@ -13,7 +13,7 @@ import (
 // - Does NOT read from storage
 // - Does NOT cache
 // - Queries execution state on demand
-func (h *Handler) GetEnvironment(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// ---- resolve environment name ----
