@@ -33,7 +33,7 @@ func main() {
 		zap.String("environment", cfg.Environment),
 	)
 
-	// ---- Wire HTTP handler (API owns its internals) ----
+	// ---- Wire HTTP handler (API owns orchestrator + executor internals) ----
 	handler := api.NewRouter(logger)
 
 	// ---- Create HTTP server ----
