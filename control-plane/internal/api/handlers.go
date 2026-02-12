@@ -60,7 +60,7 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	service := NewService(req)
-	h.store.Add(service)
+	h.store.Put(service)
 
 	h.logger.Info("service registered",
 		zap.String("service_id", service.ID.String()),
@@ -143,7 +143,27 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		ctx = context.Background()
 	}
 
-	if _, err := h.envOrchestrator.Destroy(ctx, name); err != nil {
+	/*
+		if _, err := h.envOrchestrator.Destroy(ctx, name); err != nil {
+			h.logger.Error("failed to delete environment", zap.Error(err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	*/
+
+	env, err := h.store.GetEnvironment(name)
+	if err != nil {
+		h.logger.Error("environment not found", zap.Error(err))
+		http.Error(w, "environment not found", http.StatusNotFound)
+		return
+	}
+
+	if _, err := h.envOrchestrator.Destroy(
+		ctx,
+		name,
+		env.Spec.Service, // <-- critical
+	); err != nil {
+
 		h.logger.Error("failed to delete environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
