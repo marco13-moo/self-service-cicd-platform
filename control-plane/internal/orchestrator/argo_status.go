@@ -1,5 +1,6 @@
 package orchestrator
 
+/*
 import (
 	"encoding/json"
 	"os/exec"
@@ -55,3 +56,4 @@ func (a *ArgoExecutor) GetWorkflowStatus(
 
 	return view, nil
 }
+*/
