@@ -46,15 +46,17 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	}
 
 	//-----------------------------------------
-	// Labels (platform-facing)
+	// Labels (BUILDER — NO INLINE MAPS)
 	//-----------------------------------------
 
-	baseLabels := map[string]string{
-		"platform.workflow.type": "environment-create",
-		"platform.service":       spec.Service,
-		"platform.environment":   spec.Name,
-		"platform.trigger":       "api",
-	}
+	createLabels := NewLabelBuilder(
+		WorkflowTypeEnvCreate,
+		spec.Service,
+	).
+		WithEnvironment(spec.Name).
+		WithTrigger(TriggerAPI).
+		WithTemplate("env-create-template").
+		Build()
 
 	//-----------------------------------------
 	// Submit CREATE workflow
@@ -65,7 +67,7 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		"env-create-template",
 		"env-create-",
 		createParams,
-		baseLabels,
+		createLabels,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("submit env create workflow: %w", err)
@@ -80,12 +82,14 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		"expires_at": expiresAt,
 	}
 
-	ttlLabels := map[string]string{
-		"platform.workflow.type": "environment-ttl",
-		"platform.service":       spec.Service,
-		"platform.environment":   spec.Name,
-		"platform.trigger":       "system",
-	}
+	ttlLabels := NewLabelBuilder(
+		WorkflowTypeEnvTTL,
+		spec.Service,
+	).
+		WithEnvironment(spec.Name).
+		WithTrigger(TriggerSystem).
+		WithTemplate("env-ttl-cleanup-template").
+		Build()
 
 	ttlWf, err := e.exec.SubmitFromTemplate(
 		ctx,
@@ -116,19 +120,21 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 func (e *ArgoEnvironmentOrchestrator) Destroy(
 	ctx context.Context,
 	name string,
-	service string, // <-- REQUIRED for labeling
+	service string,
 ) (*WorkflowReference, error) {
 
 	params := map[string]string{
 		"env_name": name,
 	}
 
-	labels := map[string]string{
-		"platform.workflow.type": "environment-destroy",
-		"platform.environment":   name,
-		"platform.service":       service,
-		"platform.trigger":       "api",
-	}
+	labels := NewLabelBuilder(
+		WorkflowTypeEnvDestroy,
+		service,
+	).
+		WithEnvironment(name).
+		WithTrigger(TriggerAPI).
+		WithTemplate("env-destroy-template").
+		Build()
 
 	wfObj, err := e.exec.SubmitFromTemplate(
 		ctx,
@@ -188,7 +194,6 @@ func (e *ArgoEnvironmentOrchestrator) GetTTLStatus(
 
 //
 // ---- Helpers (DO NOT INLINE THESE) ----
-// These prevent metadata coupling from spreading.
 //
 
 func toWorkflowReference(w *wf.Workflow) WorkflowReference {
