@@ -9,13 +9,23 @@ import (
 )
 
 // NewRouter wires the HTTP routes for the control-plane API.
-func NewRouter(logger *zap.Logger) http.Handler {
-	store := NewServiceStore()
+func NewRouter(
+	envOrchestrator orchestrator.EnvironmentOrchestrator,
+	logger *zap.Logger,
+) http.Handler {
+	//store := NewServiceStore()
 
 	// Phase 5: Argo-backed environment orchestrator (namespace-scoped)
-	envOrchestrator := orchestrator.NewArgoEnvironmentOrchestrator("argo")
+	//envOrchestrator := orchestrator.NewArgoEnvironmentOrchestrator("argo")
 
-	handlers := NewHandlers(store, envOrchestrator, logger)
+	//handlers := NewHandlers(store, envOrchestrator, logger)
+	store := NewServiceStore()
+
+	handlers := NewHandlers(
+		store,
+		envOrchestrator,
+		logger,
+	)
 
 	mux := http.NewServeMux()
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 )
 
@@ -72,16 +73,18 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// ---- mapping helpers ----
-
 func toWorkflowStatusResponse(
-	status *orchestrator.WorkflowStatusView,
+	status *wf.WorkflowStatus,
 ) map[string]interface{} {
+
 	if status == nil {
 		return nil
 	}
 
 	return map[string]interface{}{
-		"phase": status.Phase,
+		"phase":      string(status.Phase),
+		"message":    status.Message,
+		"startedAt":  status.StartedAt,
+		"finishedAt": status.FinishedAt,
 	}
 }
