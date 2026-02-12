@@ -2,21 +2,18 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: env-create-template
+  namespace: argo
 spec:
+  serviceAccountName: argo-env-admin
   entrypoint: create-namespace
-  arguments:
-    parameters:
-      - name: env_name
-      - name: service
-      - name: expires_at
   templates:
     - name: create-namespace
       script:
-        image: bitnami/kubectl:1.29
+        image: bitnami/kubectl:latest
+        imagePullPolicy: IfNotPresent
         command: [sh]
         source: |
           set -e
-
           echo "Ensuring namespace {{workflow.parameters.env_name}} exists"
 
           kubectl get namespace {{workflow.parameters.env_name}} \

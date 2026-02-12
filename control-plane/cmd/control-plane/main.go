@@ -9,17 +9,23 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/config"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/logging"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/server"
 )
 
 func main() {
-	// ---- Load configuration ----
+
+	//-----------------------------------------
+	// Load configuration
+	//-----------------------------------------
+
 	cfg := config.Load()
 
-	// ---- Initialize logger ----
+	//-----------------------------------------
+	// Initialize logger
+	//-----------------------------------------
+
 	logger, err := logging.New(cfg.Log.Level)
 	if err != nil {
 		panic(err)
@@ -33,19 +39,25 @@ func main() {
 		zap.String("environment", cfg.Environment),
 	)
 
-	// ---- Wire HTTP handler (API owns its internals) ----
-	handler := api.NewRouter(logger)
+	//-----------------------------------------
+	// Construct server (composition root)
+	//-----------------------------------------
 
-	// ---- Create HTTP server ----
-	srv := server.New(
+	srv, err := server.New(
 		cfg.HTTP.Address,
-		handler,
 		cfg.HTTP.ReadTimeout,
 		cfg.HTTP.WriteTimeout,
 	)
+	if err != nil {
+		logger.Fatal("failed to construct server", zap.Error(err))
+	}
 
-	// ---- Start server asynchronously ----
+	//-----------------------------------------
+	// Start server asynchronously
+	//-----------------------------------------
+
 	go func() {
+
 		logger.Info("http server listening",
 			zap.String("address", cfg.HTTP.Address),
 		)
@@ -55,14 +67,20 @@ func main() {
 		}
 	}()
 
-	// ---- Graceful shutdown handling ----
+	//-----------------------------------------
+	// Graceful shutdown
+	//-----------------------------------------
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
 	logger.Info("shutdown signal received")
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		cfg.HTTP.ShutdownTimeout,
+	)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {

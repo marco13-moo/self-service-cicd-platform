@@ -1,53 +1,53 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
-	"strings"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
+
+	argov1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	argoclient "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
 )
 
 /*
 ArgoExecutor submits Workflows derived from WorkflowTemplates.
 
-Phase 4 intent:
-- Treat Argo as an external execution plane
-- Submit by reference (WorkflowTemplate), not inline YAML
-- Use the Argo CLI to avoid early SDK coupling
+Phase 7 implementation:
+- Uses Argo Go SDK
+- Runs in-cluster using ServiceAccount identity
+- Submits by WorkflowTemplate reference
+- Captures workflow identity at submission time
 
-Phase 6 extension:
-- Capture workflow identity at submission time
-- Return immutable workflow references for observability
-
-Intentional limitations:
-- Requires `argo` binary on PATH
-- Requires kubeconfig with access to target namespace
-- No retries, status tracking, or cancellation
-- No dynamic template discovery
+Intentional limitations (unchanged):
+- No retries
+- No cancellation
+- No reconciliation loop
+- No inline YAML
 */
 
 type ArgoExecutor struct {
 	namespace string
+	client    argoclient.Interface
 }
 
 func NewArgoExecutor(namespace string) *ArgoExecutor {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		panic(fmt.Errorf("failed to load in-cluster config: %w", err))
+	}
+
+	client, err := argoclient.NewForConfig(cfg)
+	if err != nil {
+		panic(fmt.Errorf("failed to create argo client: %w", err))
+	}
+
 	return &ArgoExecutor{
 		namespace: namespace,
+		client:    client,
 	}
-}
-
-// ---- internal CLI result types ----
-
-// argoSubmitResult captures the minimal metadata returned by
-// `argo submit -o json`
-type argoSubmitResult struct {
-	Metadata struct {
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
-	} `json:"metadata"`
 }
 
 // ---- public submission methods ----
@@ -68,10 +68,7 @@ func (a *ArgoExecutor) RunServiceCI(
 	return a.submitFromTemplate(ctx, templateName, params)
 }
 
-// submitFromTemplate mirrors:
-//
-//	argo submit -n <ns> --from workflowtemplate/<name> -p k=v -o json
-//
+// submitFromTemplate submits a Workflow derived from a WorkflowTemplate
 // and returns a WorkflowReference for observability.
 func (a *ArgoExecutor) submitFromTemplate(
 	ctx context.Context,
@@ -79,49 +76,45 @@ func (a *ArgoExecutor) submitFromTemplate(
 	parameters map[string]string,
 ) (*WorkflowReference, error) {
 
-	args := []string{
-		"submit",
-		"-n", a.namespace,
-		"--from", fmt.Sprintf("workflowtemplate/%s", templateName),
-		"-o", "json",
-	}
-
+	var params []argov1.Parameter
 	for k, v := range parameters {
-		args = append(args, "-p", fmt.Sprintf("%s=%s", k, v))
+		params = append(params, argov1.Parameter{
+			Name:  k,
+			Value: argov1.AnyStringPtr(v),
+		})
 	}
 
-	cmd := exec.CommandContext(ctx, "argo", args...)
-
-	// 🔍 PHASE-6 DIAGNOSTIC (INTENTIONAL)
-	// This prints the *exact* CLI invocation so we can see
-	// namespace, template, and parameters with zero ambiguity.
-	fmt.Println("ARGO SUBMIT:", strings.Join(cmd.Args, " "))
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf(
-			"argo submit failed: %w: %s",
-			err,
-			stderr.String(),
-		)
+	workflow := &argov1.Workflow{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: templateName + "-",
+			Namespace:    a.namespace,
+		},
+		Spec: argov1.WorkflowSpec{
+			WorkflowTemplateRef: &argov1.WorkflowTemplateRef{
+				Name: templateName,
+			},
+			Arguments: argov1.Arguments{
+				Parameters: params,
+			},
+		},
 	}
 
-	var result argoSubmitResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+	created, err := a.client.
+		ArgoprojV1alpha1().
+		Workflows(a.namespace).
+		Create(ctx, workflow, metav1.CreateOptions{})
+	if err != nil {
 		return nil, fmt.Errorf(
-			"failed to parse argo submit output: %w",
+			"failed to submit workflow from template %q: %w",
+			templateName,
 			err,
 		)
 	}
 
 	ref := &WorkflowReference{
-		Name:        result.Metadata.Name,
-		Namespace:   result.Metadata.Namespace,
-		Template:    templateName, // ✅ FIXED (was incorrectly hardcoded)
+		Name:        created.Name,
+		Namespace:   created.Namespace,
+		Template:    templateName,
 		SubmittedAt: time.Now(),
 	}
 
