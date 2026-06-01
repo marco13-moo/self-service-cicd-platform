@@ -19,6 +19,8 @@ func New(
 	address string,
 	readTimeout time.Duration,
 	writeTimeout time.Duration,
+	argoNamespace string,
+	logger *zap.Logger,
 ) (*Server, error) {
 
 	//-----------------------------------------
@@ -32,7 +34,7 @@ func New(
 
 	argoExecutor := executor.NewArgoSDKExecutor(
 		clients,
-		"argo", // move to config soon
+		argoNamespace,
 	)
 
 	//-----------------------------------------
@@ -45,17 +47,6 @@ func New(
 	envOrchestrator := orchestrator.NewArgoEnvironmentOrchestrator(
 		argoExecutor,
 	)
-
-	//-----------------------------------------
-	// Logger (temporary bootstrap logger)
-	//-----------------------------------------
-
-	// Senior recommendation:
-	// Inject this from main soon instead of constructing here.
-	logger, err := zap.NewProduction()
-	if err != nil {
-		return nil, err
-	}
 
 	//-----------------------------------------
 	// Router
