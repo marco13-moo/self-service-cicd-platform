@@ -114,18 +114,23 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("submitting environment to orchestrator")
 
-	if _, err := h.envOrchestrator.Create(r.Context(), orchestrator.EnvironmentSpec{
+	env, err := h.envOrchestrator.Create(r.Context(), orchestrator.EnvironmentSpec{
 		Name:    req.Name,
 		Service: req.Service,
 		TTL:     ttl,
-	}); err != nil {
+	})
+	if err != nil {
 		h.logger.Error("failed to create environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	h.store.PutEnvironment(env)
+
 	h.logger.Info("environment creation accepted")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(env)
 }
 
 func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -158,16 +163,22 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.envOrchestrator.Destroy(
+	ref, err := h.envOrchestrator.Destroy(
 		ctx,
 		name,
 		env.Spec.Service, // <-- critical
-	); err != nil {
+	)
+	if err != nil {
 
 		h.logger.Error("failed to delete environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	env.DestroyWorkflow = ref
+	h.store.PutEnvironment(env)
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(ref)
 }

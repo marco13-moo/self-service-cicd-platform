@@ -10,6 +10,7 @@ type Config struct {
 
 	HTTP HTTPConfig
 	Log  LogConfig
+	Argo ArgoConfig
 }
 
 type HTTPConfig struct {
@@ -21,4 +22,8 @@ type HTTPConfig struct {
 
 type LogConfig struct {
 	Level string
+}
+
+type ArgoConfig struct {
+	Namespace string
 }

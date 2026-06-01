@@ -198,9 +198,11 @@ func (e *ArgoEnvironmentOrchestrator) GetTTLStatus(
 
 func toWorkflowReference(w *wf.Workflow) WorkflowReference {
 	return WorkflowReference{
-		Name:      w.Name,
-		Namespace: w.Namespace,
-		UID:       string(w.UID),
+		Name:        w.Name,
+		Namespace:   w.Namespace,
+		UID:         string(w.UID),
+		Template:    w.Labels[LabelWorkflowTemplate],
+		SubmittedAt: w.CreationTimestamp.Time,
 	}
 }
 

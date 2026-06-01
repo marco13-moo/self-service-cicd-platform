@@ -3,9 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 )
 
 // GetEnvironment returns a unified, live view of an environment.
@@ -18,16 +18,16 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// ---- resolve environment name ----
-	envName := r.PathValue("name")
-	if envName == "" {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 4 {
 		http.Error(w, "environment name is required", http.StatusBadRequest)
 		return
 	}
+	envName := parts[len(parts)-1]
 
-	// ---- resolve environment from request context ----
-	// Assumption: environment was attached by earlier middleware or handler
-	env, ok := ctx.Value("environment").(*orchestrator.Environment)
-	if !ok || env == nil {
+	// ---- resolve environment from store ----
+	env, err := h.store.GetEnvironment(envName)
+	if err != nil {
 		http.Error(w, "environment not found", http.StatusNotFound)
 		return
 	}

@@ -47,6 +47,8 @@ func main() {
 		cfg.HTTP.Address,
 		cfg.HTTP.ReadTimeout,
 		cfg.HTTP.WriteTimeout,
+		cfg.Argo.Namespace,
+		logger,
 	)
 	if err != nil {
 		logger.Fatal("failed to construct server", zap.Error(err))

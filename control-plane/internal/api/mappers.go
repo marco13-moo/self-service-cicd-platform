@@ -8,6 +8,7 @@ func ToWorkflowReferenceResponse(
 	return WorkflowReferenceResponse{
 		Name:        ref.Name,
 		Namespace:   ref.Namespace,
+		UID:         ref.UID,
 		Template:    ref.Template,
 		SubmittedAt: ref.SubmittedAt,
 	}

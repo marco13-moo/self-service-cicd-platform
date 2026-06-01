@@ -57,6 +57,8 @@ func NewRouter(
 
 	mux.HandleFunc("/api/v1/environments/", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
+		case http.MethodGet:
+			handlers.GetEnvironment(w, r)
 		case http.MethodDelete:
 			handlers.DeleteEnvironment(w, r)
 		default:

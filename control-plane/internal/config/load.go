@@ -18,6 +18,9 @@ func Load() *Config {
 		Log: LogConfig{
 			Level: getEnv("LOG_LEVEL", "info"),
 		},
+		Argo: ArgoConfig{
+			Namespace: getEnv("ARGO_NAMESPACE", "argo"),
+		},
 	}
 }
 
