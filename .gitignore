@@ -8,6 +8,7 @@
 # Build outputs
 bin/
 dist/
+.tools/
 
 # Terraform
 .terraform/

@@ -22,32 +22,19 @@ func NewArgoEnvironmentOrchestrator(
 	}
 }
 
-// Create submits intent to:
-//  1. Create an environment namespace
-//  2. Schedule TTL cleanup
-//
-// The control plane stores ONLY workflow references.
-// Argo owns lifecycle.
+// Create submits intent to create an environment namespace and schedule cleanup.
+// The control plane stores workflow references only; Argo owns lifecycle.
 func (e *ArgoEnvironmentOrchestrator) Create(
 	ctx context.Context,
 	spec EnvironmentSpec,
 ) (*Environment, error) {
-
 	expiresAt := time.Now().Add(spec.TTL).Format(time.RFC3339)
-
-	//-----------------------------------------
-	// Parameters (template-facing)
-	//-----------------------------------------
 
 	createParams := map[string]string{
 		"env_name":   spec.Name,
 		"service":    spec.Service,
 		"expires_at": expiresAt,
 	}
-
-	//-----------------------------------------
-	// Labels (BUILDER — NO INLINE MAPS)
-	//-----------------------------------------
 
 	createLabels := NewLabelBuilder(
 		WorkflowTypeEnvCreate,
@@ -57,10 +44,6 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		WithTrigger(TriggerAPI).
 		WithTemplate("env-create-template").
 		Build()
-
-	//-----------------------------------------
-	// Submit CREATE workflow
-	//-----------------------------------------
 
 	createWf, err := e.exec.SubmitFromTemplate(
 		ctx,
@@ -72,10 +55,6 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	if err != nil {
 		return nil, fmt.Errorf("submit env create workflow: %w", err)
 	}
-
-	//-----------------------------------------
-	// TTL workflow
-	//-----------------------------------------
 
 	ttlParams := map[string]string{
 		"env_name":   spec.Name,
@@ -102,18 +81,11 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		return nil, fmt.Errorf("submit ttl workflow: %w", err)
 	}
 
-	//-----------------------------------------
-	// Assemble control-plane view
-	//-----------------------------------------
-
-	env := &Environment{
-		Spec: spec,
-
+	return &Environment{
+		Spec:           spec,
 		CreateWorkflow: toWorkflowReference(createWf),
 		TTLWorkflow:    toWorkflowReferencePtr(ttlWf),
-	}
-
-	return env, nil
+	}, nil
 }
 
 // Destroy submits intent to delete an environment.
@@ -122,7 +94,6 @@ func (e *ArgoEnvironmentOrchestrator) Destroy(
 	name string,
 	service string,
 ) (*WorkflowReference, error) {
-
 	params := map[string]string{
 		"env_name": name,
 	}
@@ -148,19 +119,13 @@ func (e *ArgoEnvironmentOrchestrator) Destroy(
 	}
 
 	ref := toWorkflowReference(wfObj)
-
 	return &ref, nil
 }
-
-//
-// ---- Read-only execution observability ----
-//
 
 func (e *ArgoEnvironmentOrchestrator) GetCreateStatus(
 	ctx context.Context,
 	env *Environment,
 ) (*wf.WorkflowStatus, error) {
-
 	w, err := e.exec.GetWorkflow(
 		ctx,
 		env.CreateWorkflow.Name,
@@ -176,7 +141,6 @@ func (e *ArgoEnvironmentOrchestrator) GetTTLStatus(
 	ctx context.Context,
 	env *Environment,
 ) (*wf.WorkflowStatus, error) {
-
 	if env.TTLWorkflow == nil {
 		return nil, nil
 	}
@@ -191,10 +155,6 @@ func (e *ArgoEnvironmentOrchestrator) GetTTLStatus(
 
 	return &w.Status, nil
 }
-
-//
-// ---- Helpers (DO NOT INLINE THESE) ----
-//
 
 func toWorkflowReference(w *wf.Workflow) WorkflowReference {
 	return WorkflowReference{

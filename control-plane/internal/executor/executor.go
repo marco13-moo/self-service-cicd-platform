@@ -6,19 +6,9 @@ import (
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 )
 
-// Executor is the transport boundary between the control plane
-// and the execution plane (Argo).
-//
-// CRITICAL RULE:
-//
-// The executor submits intent.
-// It does NOT interpret workflow state.
-// It does NOT implement retries.
-// It does NOT orchestrate.
-//
-// Argo owns execution semantics.
+// WorkflowExecutor is the transport boundary between the control plane and
+// Argo. It submits intent, but does not interpret state, retry, or orchestrate.
 type WorkflowExecutor interface {
-
 	// SubmitFromTemplate creates a Workflow CR from a WorkflowTemplate.
 	//
 	// generateName should follow Kubernetes conventions:
@@ -26,10 +16,7 @@ type WorkflowExecutor interface {
 	//   ci-run-
 	//   deploy-
 	//
-	// Returns the FULL workflow object so callers can extract:
-	//   - Name
-	//   - Namespace
-	//   - UID
+	// The full workflow object lets callers retain name, namespace, and UID.
 	SubmitFromTemplate(
 		ctx context.Context,
 		templateName string,
@@ -39,20 +26,12 @@ type WorkflowExecutor interface {
 	) (*wf.Workflow, error)
 
 	// GetWorkflow retrieves the live workflow object from Argo.
-	//
-	// IMPORTANT:
-	// This is a READ — not state ownership.
 	GetWorkflow(
 		ctx context.Context,
 		name string,
 	) (*wf.Workflow, error)
 
-	// Cancel terminates a running workflow.
-	//
-	// Implemented via:
-	//   spec.shutdown = "Terminate"
-	//
-	// This preserves Argo as the execution authority.
+	// Cancel terminates a running workflow by setting spec.shutdown.
 	Cancel(
 		ctx context.Context,
 		name string,

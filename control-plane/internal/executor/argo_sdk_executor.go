@@ -33,15 +33,9 @@ func (e *ArgoSDKExecutor) SubmitFromTemplate(
 	templateName string,
 	generateName string,
 	parameters map[string]string,
-	labels map[string]string, // <-- REQUIRED by the upgraded interface
+	labels map[string]string,
 ) (*wf.Workflow, error) {
-
-	//-----------------------------------------
-	// Build parameters
-	//-----------------------------------------
-
 	args := wf.Arguments{}
-
 	for k, v := range parameters {
 		val := v // avoid pointer aliasing
 		args.Parameters = append(args.Parameters,
@@ -51,28 +45,23 @@ func (e *ArgoSDKExecutor) SubmitFromTemplate(
 			})
 	}
 
-	//-----------------------------------------
-	// Build labels OUTSIDE the struct literal
-	//-----------------------------------------
-
-	mergedLabels := map[string]string{
-		"platform.control-plane":     "true",
-		"platform.executor":          "argo",
-		"platform.workflow.template": templateName,
-	}
-
-	// Caller labels override ONLY non-platform keys.
+	mergedLabels := make(map[string]string, len(labels)+3)
 	for k, v := range labels {
 		mergedLabels[k] = v
 	}
 
-	//-----------------------------------------
-	// Construct workflow
-	//-----------------------------------------
+	for k, v := range map[string]string{
+		"platform.control-plane":     "true",
+		"platform.executor":          "argo",
+		"platform.workflow.template": templateName,
+	} {
+		mergedLabels[k] = v
+	}
 
 	workflow := &wf.Workflow{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: generateName,
+			Namespace:    e.namespace,
 			Labels:       mergedLabels,
 		},
 		Spec: wf.WorkflowSpec{

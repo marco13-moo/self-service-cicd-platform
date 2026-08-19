@@ -10,10 +10,8 @@ import (
 
 // GetEnvironment returns a unified, live view of an environment.
 //
-// It:
-// - Does NOT read from storage
-// - Does NOT cache
-// - Queries execution state on demand
+// Stored environment metadata is combined with execution state queried on
+// demand. Workflow status is never cached in the control-plane store.
 func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -32,10 +30,17 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ---- query live workflow statuses ----
+	createStatus, err := h.envOrchestrator.GetCreateStatus(ctx, env)
+	if err != nil {
+		http.Error(w, "failed to get create workflow status", http.StatusBadGateway)
+		return
+	}
 
-	createStatus, _ := h.envOrchestrator.GetCreateStatus(ctx, env)
-	ttlStatus, _ := h.envOrchestrator.GetTTLStatus(ctx, env)
+	ttlStatus, err := h.envOrchestrator.GetTTLStatus(ctx, env)
+	if err != nil {
+		http.Error(w, "failed to get ttl workflow status", http.StatusBadGateway)
+		return
+	}
 
 	// ---- assemble response (inline, no extra types) ----
 
@@ -66,8 +71,6 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 			"status":    toWorkflowStatusResponse(ttlStatus),
 		}
 	}
-
-	// ---- write response ----
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)

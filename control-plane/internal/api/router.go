@@ -13,12 +13,6 @@ func NewRouter(
 	envOrchestrator orchestrator.EnvironmentOrchestrator,
 	logger *zap.Logger,
 ) http.Handler {
-	//store := NewServiceStore()
-
-	// Phase 5: Argo-backed environment orchestrator (namespace-scoped)
-	//envOrchestrator := orchestrator.NewArgoEnvironmentOrchestrator("argo")
-
-	//handlers := NewHandlers(store, envOrchestrator, logger)
 	store := NewServiceStore()
 
 	handlers := NewHandlers(
@@ -33,7 +27,7 @@ func NewRouter(
 	mux.HandleFunc("/healthz", handlers.Healthz)
 	mux.HandleFunc("/readyz", handlers.Readyz)
 
-	// API v1 — services
+	// API v1 - services
 	mux.HandleFunc("/api/v1/services", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -45,7 +39,7 @@ func NewRouter(
 		}
 	})
 
-	// API v1 — environments
+	// API v1 - environments
 	mux.HandleFunc("/api/v1/environments", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:

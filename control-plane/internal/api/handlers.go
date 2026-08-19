@@ -81,7 +81,7 @@ func (h *Handlers) ListServices(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(services)
 }
 
-// --- Environment endpoints (Phase 5) ---
+// --- Environment endpoints ---
 
 type CreateEnvironmentRequest struct {
 	Name    string `json:"name"`
@@ -148,14 +148,6 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		ctx = context.Background()
 	}
 
-	/*
-		if _, err := h.envOrchestrator.Destroy(ctx, name); err != nil {
-			h.logger.Error("failed to delete environment", zap.Error(err))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	*/
-
 	env, err := h.store.GetEnvironment(name)
 	if err != nil {
 		h.logger.Error("environment not found", zap.Error(err))
@@ -166,7 +158,7 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 	ref, err := h.envOrchestrator.Destroy(
 		ctx,
 		name,
-		env.Spec.Service, // <-- critical
+		env.Spec.Service,
 	)
 	if err != nil {
 
