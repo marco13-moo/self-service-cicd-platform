@@ -35,6 +35,11 @@ spec:
               value: argo
             - name: ARGO_UI_BASE_URL
               value: http://argo-server.argo.svc
+            - name: GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: github-app
+                  key: webhook-secret
           volumeMounts:
             - name: state
               mountPath: /var/lib/control-plane

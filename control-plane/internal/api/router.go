@@ -11,8 +11,8 @@ import (
 
 // NewRouter declares the complete public HTTP surface using method-aware Go
 // 1.22 patterns, eliminating ambiguous suffix parsing in individual handlers.
-func NewRouter(store *ServiceStore, envOrchestrator orchestrator.EnvironmentOrchestrator, argoLinks *orchestrator.ArgoLinks, repositories providers.RepositoryProvider, logger *zap.Logger) http.Handler {
-	handlers := NewHandlers(store, envOrchestrator, argoLinks, repositories, logger)
+func NewRouter(store *ServiceStore, envOrchestrator orchestrator.EnvironmentOrchestrator, argoLinks *orchestrator.ArgoLinks, repositories providers.RepositoryProvider, githubWebhookSecret string, logger *zap.Logger) http.Handler {
+	handlers := NewHandlers(store, envOrchestrator, argoLinks, repositories, githubWebhookSecret, logger)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handlers.Healthz)
 	mux.HandleFunc("GET /readyz", handlers.Readyz)
@@ -22,5 +22,6 @@ func NewRouter(store *ServiceStore, envOrchestrator orchestrator.EnvironmentOrch
 	mux.HandleFunc("GET /api/v1/environments/{name}", handlers.GetEnvironment)
 	mux.HandleFunc("DELETE /api/v1/environments/{name}", handlers.DeleteEnvironment)
 	mux.HandleFunc("GET /api/v1/environments/{name}/logs", handlers.GetEnvironmentLogs)
+	mux.HandleFunc("POST /api/v1/webhooks/github", handlers.GitHubWebhook)
 	return mux
 }

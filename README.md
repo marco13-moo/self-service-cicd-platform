@@ -16,11 +16,13 @@ Phases 1–7 are implemented:
 - Kubernetes RBAC, deployment, service, service accounts, and persistent state volume
 - Liveness and Argo-aware readiness probes
 - GitHub repository validation and root-manifest project detection
+- HMAC-authenticated GitHub webhook ingestion with durable delivery deduplication
+- Deterministic PR lifecycle commands, deliberately decoupled from Argo submission
 
-The next product milestone is Phase 8: GitHub App authentication, webhook
-ingestion, and PR-driven preview environments. The GitHub provider currently
-supports read-only repository inspection; it does not create installations or
-webhooks.
+Phase 8 is in progress. Authenticated webhook ingestion is implemented; GitHub
+App installation-token minting and asynchronous command reconciliation remain
+the next increments. The provider currently supports read-only repository
+inspection and does not create installations or webhooks.
 
 ## Architecture
 
@@ -52,6 +54,7 @@ Architectural decisions and trust boundaries are documented in
 | `GET` | `/api/v1/environments/{name}` | Retrieve intent and live workflow state |
 | `DELETE` | `/api/v1/environments/{name}` | Submit and retain a destroy workflow reference |
 | `GET` | `/api/v1/environments/{name}/logs` | Return Argo UI links and CLI log hints |
+| `POST` | `/api/v1/webhooks/github` | Authenticate, deduplicate, and translate GitHub deliveries |
 
 Example environment request:
 
@@ -74,6 +77,7 @@ Example environment request:
 | `ARGO_NAMESPACE` | `argo` | Workflow namespace |
 | `ARGO_UI_BASE_URL` | `http://argo-server.argo.svc` | Base URL returned by log navigation |
 | `GITHUB_TOKEN` | unset | Optional token for private repositories or higher API limits |
+| `GITHUB_WEBHOOK_SECRET` | unset | Required HMAC secret for GitHub webhook ingestion |
 
 The file-backed state repository is intentionally single-writer. The Kubernetes
 deployment mounts a `ReadWriteOnce` PVC. A multi-replica deployment requires a
@@ -97,3 +101,5 @@ docker build -t self-service-cicd-control-plane:local .
 ```
 
 See [`docs/demo.md`](docs/demo.md) for the environment lifecycle walkthrough.
+The webhook security and idempotency boundary is specified in
+[`ADR 0008`](docs/adr/0008-authenticated-github-webhook-ingestion.md).

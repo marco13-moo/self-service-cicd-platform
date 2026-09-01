@@ -15,11 +15,12 @@ import (
 // Handlers owns all HTTP handlers for the control-plane API.
 // Dependencies are injected explicitly.
 type Handlers struct {
-	store           *ServiceStore
-	envOrchestrator orchestrator.EnvironmentOrchestrator
-	argoLinks       *orchestrator.ArgoLinks
-	repositories    providers.RepositoryProvider
-	logger          *zap.Logger
+	store               *ServiceStore
+	envOrchestrator     orchestrator.EnvironmentOrchestrator
+	argoLinks           *orchestrator.ArgoLinks
+	repositories        providers.RepositoryProvider
+	githubWebhookSecret string
+	logger              *zap.Logger
 }
 
 func NewHandlers(
@@ -27,14 +28,16 @@ func NewHandlers(
 	envOrchestrator orchestrator.EnvironmentOrchestrator,
 	argoLinks *orchestrator.ArgoLinks,
 	repositories providers.RepositoryProvider,
+	githubWebhookSecret string,
 	logger *zap.Logger,
 ) *Handlers {
 	return &Handlers{
-		store:           store,
-		envOrchestrator: envOrchestrator,
-		argoLinks:       argoLinks,
-		repositories:    repositories,
-		logger:          logger,
+		store:               store,
+		envOrchestrator:     envOrchestrator,
+		argoLinks:           argoLinks,
+		repositories:        repositories,
+		githubWebhookSecret: githubWebhookSecret,
+		logger:              logger,
 	}
 }
 

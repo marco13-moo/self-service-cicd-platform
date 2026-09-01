@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 )
@@ -18,19 +19,28 @@ var ErrServiceNotFound = errors.New("service not found")
 // ServiceStore is a concurrency-safe repository for control-plane intent and
 // immutable workflow references. When path is non-empty, mutations are durable.
 type ServiceStore struct {
-	mu           sync.RWMutex
-	path         string
-	services     map[string]Service
-	environments map[string]*orchestrator.Environment
+	mu               sync.RWMutex
+	path             string
+	services         map[string]Service
+	environments     map[string]*orchestrator.Environment
+	githubDeliveries map[string]time.Time
+	githubCommands   []GitHubWebhookCommand
 }
 
 type persistedState struct {
-	Services     map[string]Service                   `json:"services"`
-	Environments map[string]*orchestrator.Environment `json:"environments"`
+	Services         map[string]Service                   `json:"services"`
+	Environments     map[string]*orchestrator.Environment `json:"environments"`
+	GitHubDeliveries map[string]time.Time                 `json:"github_deliveries,omitempty"`
+	GitHubCommands   []GitHubWebhookCommand               `json:"github_commands,omitempty"`
 }
 
 func NewServiceStore() *ServiceStore {
-	return &ServiceStore{services: make(map[string]Service), environments: make(map[string]*orchestrator.Environment)}
+	return &ServiceStore{
+		services:         make(map[string]Service),
+		environments:     make(map[string]*orchestrator.Environment),
+		githubDeliveries: make(map[string]time.Time),
+		githubCommands:   make([]GitHubWebhookCommand, 0),
+	}
 }
 
 // NewPersistentServiceStore loads existing state. Malformed state is rejected
@@ -57,6 +67,12 @@ func NewPersistentServiceStore(path string) (*ServiceStore, error) {
 	}
 	if state.Environments != nil {
 		store.environments = state.Environments
+	}
+	if state.GitHubDeliveries != nil {
+		store.githubDeliveries = state.GitHubDeliveries
+	}
+	if state.GitHubCommands != nil {
+		store.githubCommands = state.GitHubCommands
 	}
 	return store, nil
 }
@@ -139,6 +155,49 @@ func (s *ServiceStore) DeleteEnvironment(name string) error {
 	return nil
 }
 
+// RecordGitHubDelivery atomically establishes delivery idempotency and appends
+// a durable lifecycle command. A nil command records an accepted event that
+// intentionally has no downstream side effect.
+func (s *ServiceStore) RecordGitHubDelivery(deliveryID string, command *GitHubWebhookCommand, receivedAt time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.githubDeliveries[deliveryID]; exists {
+		return true, nil
+	}
+	previousDeliveries := make(map[string]time.Time, len(s.githubDeliveries))
+	for id, timestamp := range s.githubDeliveries {
+		previousDeliveries[id] = timestamp
+	}
+	previousCommandCount := len(s.githubCommands)
+
+	// GitHub delivery IDs are retained long enough to absorb realistic retries
+	// without allowing the single-writer state file to grow indefinitely.
+	cutoff := receivedAt.Add(-7 * 24 * time.Hour)
+	for id, timestamp := range s.githubDeliveries {
+		if timestamp.Before(cutoff) {
+			delete(s.githubDeliveries, id)
+		}
+	}
+	s.githubDeliveries[deliveryID] = receivedAt
+	if command != nil {
+		s.githubCommands = append(s.githubCommands, *command)
+	}
+	if err := s.persistLocked(); err != nil {
+		s.githubDeliveries = previousDeliveries
+		s.githubCommands = s.githubCommands[:previousCommandCount]
+		return false, err
+	}
+	return false, nil
+}
+
+func (s *ServiceStore) GitHubCommands() []GitHubWebhookCommand {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]GitHubWebhookCommand, len(s.githubCommands))
+	copy(out, s.githubCommands)
+	return out
+}
+
 // persistLocked performs a crash-safe same-directory temporary write followed
 // by an atomic rename. The caller retains the write lock throughout.
 func (s *ServiceStore) persistLocked() error {
@@ -149,7 +208,12 @@ func (s *ServiceStore) persistLocked() error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
-	data, err := json.MarshalIndent(persistedState{Services: s.services, Environments: s.environments}, "", "  ")
+	data, err := json.MarshalIndent(persistedState{
+		Services:         s.services,
+		Environments:     s.environments,
+		GitHubDeliveries: s.githubDeliveries,
+		GitHubCommands:   s.githubCommands,
+	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
 	}

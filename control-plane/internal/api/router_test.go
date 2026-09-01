@@ -36,7 +36,7 @@ func (f *fakeEnvironmentOrchestrator) Ready(context.Context) error { return f.re
 
 func TestEnvironmentLifecycleRoutes(t *testing.T) {
 	store := NewServiceStore()
-	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, zap.NewNop())
+	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, "test-secret", zap.NewNop())
 
 	create := httptest.NewRequest(http.MethodPost, "/api/v1/environments", bytes.NewBufferString(`{"name":"pr-42","service":"checkout","ttl":"1h"}`))
 	created := httptest.NewRecorder()
@@ -69,7 +69,7 @@ func TestEnvironmentLifecycleRoutes(t *testing.T) {
 
 func TestReadinessReflectsExecutionPlane(t *testing.T) {
 	orchestratorFake := &fakeEnvironmentOrchestrator{readyErr: errors.New("unavailable")}
-	router := NewRouter(NewServiceStore(), orchestratorFake, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, zap.NewNop())
+	router := NewRouter(NewServiceStore(), orchestratorFake, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, "test-secret", zap.NewNop())
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if response.Code != http.StatusServiceUnavailable {

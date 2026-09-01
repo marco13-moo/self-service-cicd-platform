@@ -8,10 +8,11 @@ type Config struct {
 	ServiceName string
 	Environment string
 
-	HTTP  HTTPConfig
-	Log   LogConfig
-	State StateConfig
-	Argo  ArgoConfig
+	HTTP   HTTPConfig
+	Log    LogConfig
+	State  StateConfig
+	Argo   ArgoConfig
+	GitHub GitHubConfig
 }
 
 type HTTPConfig struct {
@@ -30,4 +31,8 @@ type StateConfig struct{ Path string }
 type ArgoConfig struct {
 	Namespace string
 	UIBaseURL string
+}
+
+type GitHubConfig struct {
+	WebhookSecret string
 }

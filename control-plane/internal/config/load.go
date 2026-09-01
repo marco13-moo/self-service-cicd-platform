@@ -23,6 +23,7 @@ func Load() *Config {
 			Namespace: getEnv("ARGO_NAMESPACE", "argo"),
 			UIBaseURL: getEnv("ARGO_UI_BASE_URL", "http://argo-server.argo.svc"),
 		},
+		GitHub: GitHubConfig{WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET")},
 	}
 }
 

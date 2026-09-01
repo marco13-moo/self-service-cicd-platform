@@ -62,6 +62,7 @@ func New(
 		envOrchestrator, // interface satisfied
 		argoLinks,
 		githubprovider.New(),
+		cfg.GitHub.WebhookSecret,
 		logger,
 	)
 
