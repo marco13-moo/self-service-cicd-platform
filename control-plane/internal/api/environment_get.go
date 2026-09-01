@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 )
 
 // GetEnvironment returns a unified, live view of an environment.
@@ -15,27 +14,30 @@ import (
 // - Does NOT cache
 // - Queries execution state on demand
 func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// ---- resolve environment name ----
 	envName := r.PathValue("name")
 	if envName == "" {
 		http.Error(w, "environment name is required", http.StatusBadRequest)
 		return
 	}
 
-	// ---- resolve environment from request context ----
-	// Assumption: environment was attached by earlier middleware or handler
-	env, ok := ctx.Value("environment").(*orchestrator.Environment)
-	if !ok || env == nil {
+	env, err := h.store.GetEnvironment(envName)
+	if err != nil {
 		http.Error(w, "environment not found", http.StatusNotFound)
 		return
 	}
 
 	// ---- query live workflow statuses ----
 
-	createStatus, _ := h.envOrchestrator.GetCreateStatus(ctx, env)
-	ttlStatus, _ := h.envOrchestrator.GetTTLStatus(ctx, env)
+	createStatus, err := h.envOrchestrator.GetCreateStatus(r.Context(), env)
+	if err != nil {
+		http.Error(w, "failed to query create workflow", http.StatusBadGateway)
+		return
+	}
+	ttlStatus, err := h.envOrchestrator.GetTTLStatus(r.Context(), env)
+	if err != nil {
+		http.Error(w, "failed to query ttl workflow", http.StatusBadGateway)
+		return
+	}
 
 	// ---- assemble response (inline, no extra types) ----
 

@@ -8,6 +8,11 @@
 # Build outputs
 bin/
 dist/
+control-plane/control-plane
+
+# Runtime state
+data/
+control-plane/data/
 
 # Terraform
 .terraform/

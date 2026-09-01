@@ -14,10 +14,10 @@ import (
 // EnvironmentSpec defines the desired environment.
 // This remains intent-only.
 type EnvironmentSpec struct {
-	Name       string
-	Service    string
-	TTL        time.Duration
-	Parameters map[string]string
+	Name       string            `json:"name"`
+	Service    string            `json:"service"`
+	TTL        time.Duration     `json:"ttl"`
+	Parameters map[string]string `json:"parameters,omitempty"`
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.
@@ -26,8 +26,8 @@ type EnvironmentSpec struct {
 type WorkflowReference struct {
 	Name        string
 	Namespace   string
-	Template    string
-	SubmittedAt time.Time
+	Template    string    `json:"template,omitempty"`
+	SubmittedAt time.Time `json:"submitted_at,omitempty"`
 }*/
 type WorkflowReference struct {
 	Name        string `json:"name"`
@@ -40,11 +40,11 @@ type WorkflowReference struct {
 // Environment represents the control-plane view of an environment.
 // It contains intent + references, but no execution state.
 type Environment struct {
-	Spec EnvironmentSpec
+	Spec EnvironmentSpec `json:"spec"`
 
-	CreateWorkflow  WorkflowReference
-	DestroyWorkflow *WorkflowReference
-	TTLWorkflow     *WorkflowReference
+	CreateWorkflow  WorkflowReference  `json:"create_workflow"`
+	DestroyWorkflow *WorkflowReference `json:"destroy_workflow,omitempty"`
+	TTLWorkflow     *WorkflowReference `json:"ttl_workflow,omitempty"`
 }
 
 //
@@ -85,4 +85,7 @@ type EnvironmentOrchestrator interface {
 	GetCreateStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
 
 	GetTTLStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
+
+	// Ready verifies connectivity to the authoritative execution plane.
+	Ready(ctx context.Context) error
 }

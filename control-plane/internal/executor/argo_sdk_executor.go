@@ -139,3 +139,14 @@ func (e *ArgoSDKExecutor) Cancel(
 
 	return nil
 }
+
+func (e *ArgoSDKExecutor) Ready(ctx context.Context) error {
+	_, err := e.clients.Argo.ArgoprojV1alpha1().Workflows(e.namespace).List(
+		ctx,
+		metav1.ListOptions{Limit: 1},
+	)
+	if err != nil {
+		return fmt.Errorf("probe Argo workflows API: %w", err)
+	}
+	return nil
+}

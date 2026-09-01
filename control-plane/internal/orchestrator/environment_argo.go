@@ -192,15 +192,25 @@ func (e *ArgoEnvironmentOrchestrator) GetTTLStatus(
 	return &w.Status, nil
 }
 
+func (e *ArgoEnvironmentOrchestrator) Ready(ctx context.Context) error {
+	return e.exec.Ready(ctx)
+}
+
 //
 // ---- Helpers (DO NOT INLINE THESE) ----
 //
 
 func toWorkflowReference(w *wf.Workflow) WorkflowReference {
+	template := ""
+	if w.Spec.WorkflowTemplateRef != nil {
+		template = w.Spec.WorkflowTemplateRef.Name
+	}
 	return WorkflowReference{
-		Name:      w.Name,
-		Namespace: w.Namespace,
-		UID:       string(w.UID),
+		Name:        w.Name,
+		Namespace:   w.Namespace,
+		UID:         string(w.UID),
+		Template:    template,
+		SubmittedAt: w.CreationTimestamp.Time,
 	}
 }
 

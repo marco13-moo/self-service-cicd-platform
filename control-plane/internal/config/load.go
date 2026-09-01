@@ -18,6 +18,11 @@ func Load() *Config {
 		Log: LogConfig{
 			Level: getEnv("LOG_LEVEL", "info"),
 		},
+		State: StateConfig{Path: getEnv("STATE_PATH", "/var/lib/control-plane/state.json")},
+		Argo: ArgoConfig{
+			Namespace: getEnv("ARGO_NAMESPACE", "argo"),
+			UIBaseURL: getEnv("ARGO_UI_BASE_URL", "http://argo-server.argo.svc"),
+		},
 	}
 }
 

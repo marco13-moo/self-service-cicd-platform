@@ -20,3 +20,27 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          env:
+            - name: STATE_PATH
+              value: /var/lib/control-plane/state.json
+            - name: ARGO_NAMESPACE
+              value: argo
+            - name: ARGO_UI_BASE_URL
+              value: http://argo-server.argo.svc
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/control-plane
+      volumes:
+        # Replace this with a PersistentVolumeClaim for multi-replica or
+        # node-independent durability. The file repository is single-writer.
+        - name: state
+          persistentVolumeClaim:
+            claimName: control-plane-state

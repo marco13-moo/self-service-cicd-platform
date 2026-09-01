@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/config"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/executor"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	githubprovider "github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers/github"
 	"go.uber.org/zap"
 )
 
@@ -16,9 +18,8 @@ type Server struct {
 }
 
 func New(
-	address string,
-	readTimeout time.Duration,
-	writeTimeout time.Duration,
+	cfg *config.Config,
+	logger *zap.Logger,
 ) (*Server, error) {
 
 	//-----------------------------------------
@@ -32,7 +33,7 @@ func New(
 
 	argoExecutor := executor.NewArgoSDKExecutor(
 		clients,
-		"argo", // move to config soon
+		cfg.Argo.Namespace,
 	)
 
 	//-----------------------------------------
@@ -46,23 +47,21 @@ func New(
 		argoExecutor,
 	)
 
-	//-----------------------------------------
-	// Logger (temporary bootstrap logger)
-	//-----------------------------------------
-
-	// Senior recommendation:
-	// Inject this from main soon instead of constructing here.
-	logger, err := zap.NewProduction()
+	store, err := api.NewPersistentServiceStore(cfg.State.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize state store: %w", err)
 	}
+	argoLinks := orchestrator.NewArgoLinks(cfg.Argo.UIBaseURL)
 
 	//-----------------------------------------
 	// Router
 	//-----------------------------------------
 
 	handler := api.NewRouter(
+		store,
 		envOrchestrator, // interface satisfied
+		argoLinks,
+		githubprovider.New(),
 		logger,
 	)
 
@@ -71,10 +70,10 @@ func New(
 	//-----------------------------------------
 
 	httpSrv := &http.Server{
-		Addr:         address,
+		Addr:         cfg.HTTP.Address,
 		Handler:      handler,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
+		ReadTimeout:  cfg.HTTP.ReadTimeout,
+		WriteTimeout: cfg.HTTP.WriteTimeout,
 	}
 
 	return &Server{

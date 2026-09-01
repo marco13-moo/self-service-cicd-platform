@@ -43,11 +43,7 @@ func main() {
 	// Construct server (composition root)
 	//-----------------------------------------
 
-	srv, err := server.New(
-		cfg.HTTP.Address,
-		cfg.HTTP.ReadTimeout,
-		cfg.HTTP.WriteTimeout,
-	)
+	srv, err := server.New(cfg, logger)
 	if err != nil {
 		logger.Fatal("failed to construct server", zap.Error(err))
 	}

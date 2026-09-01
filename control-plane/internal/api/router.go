@@ -6,63 +6,21 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers"
 )
 
-// NewRouter wires the HTTP routes for the control-plane API.
-func NewRouter(
-	envOrchestrator orchestrator.EnvironmentOrchestrator,
-	logger *zap.Logger,
-) http.Handler {
-	//store := NewServiceStore()
-
-	// Phase 5: Argo-backed environment orchestrator (namespace-scoped)
-	//envOrchestrator := orchestrator.NewArgoEnvironmentOrchestrator("argo")
-
-	//handlers := NewHandlers(store, envOrchestrator, logger)
-	store := NewServiceStore()
-
-	handlers := NewHandlers(
-		store,
-		envOrchestrator,
-		logger,
-	)
-
+// NewRouter declares the complete public HTTP surface using method-aware Go
+// 1.22 patterns, eliminating ambiguous suffix parsing in individual handlers.
+func NewRouter(store *ServiceStore, envOrchestrator orchestrator.EnvironmentOrchestrator, argoLinks *orchestrator.ArgoLinks, repositories providers.RepositoryProvider, logger *zap.Logger) http.Handler {
+	handlers := NewHandlers(store, envOrchestrator, argoLinks, repositories, logger)
 	mux := http.NewServeMux()
-
-	// Platform endpoints
-	mux.HandleFunc("/healthz", handlers.Healthz)
-	mux.HandleFunc("/readyz", handlers.Readyz)
-
-	// API v1 — services
-	mux.HandleFunc("/api/v1/services", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			handlers.CreateService(w, r)
-		case http.MethodGet:
-			handlers.ListServices(w, r)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	// API v1 — environments
-	mux.HandleFunc("/api/v1/environments", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			handlers.CreateEnvironment(w, r)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	mux.HandleFunc("/api/v1/environments/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodDelete:
-			handlers.DeleteEnvironment(w, r)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
+	mux.HandleFunc("GET /healthz", handlers.Healthz)
+	mux.HandleFunc("GET /readyz", handlers.Readyz)
+	mux.HandleFunc("POST /api/v1/services", handlers.CreateService)
+	mux.HandleFunc("GET /api/v1/services", handlers.ListServices)
+	mux.HandleFunc("POST /api/v1/environments", handlers.CreateEnvironment)
+	mux.HandleFunc("GET /api/v1/environments/{name}", handlers.GetEnvironment)
+	mux.HandleFunc("DELETE /api/v1/environments/{name}", handlers.DeleteEnvironment)
+	mux.HandleFunc("GET /api/v1/environments/{name}/logs", handlers.GetEnvironmentLogs)
 	return mux
 }

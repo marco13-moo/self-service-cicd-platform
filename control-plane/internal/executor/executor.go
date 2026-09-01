@@ -57,4 +57,8 @@ type WorkflowExecutor interface {
 		ctx context.Context,
 		name string,
 	) error
+
+	// Ready probes the Argo API using the same identity and namespace used for
+	// workflow execution.
+	Ready(ctx context.Context) error
 }

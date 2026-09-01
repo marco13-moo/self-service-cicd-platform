@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers"
 )
 
 // Handlers owns all HTTP handlers for the control-plane API.
@@ -17,17 +17,23 @@ import (
 type Handlers struct {
 	store           *ServiceStore
 	envOrchestrator orchestrator.EnvironmentOrchestrator
+	argoLinks       *orchestrator.ArgoLinks
+	repositories    providers.RepositoryProvider
 	logger          *zap.Logger
 }
 
 func NewHandlers(
 	store *ServiceStore,
 	envOrchestrator orchestrator.EnvironmentOrchestrator,
+	argoLinks *orchestrator.ArgoLinks,
+	repositories providers.RepositoryProvider,
 	logger *zap.Logger,
 ) *Handlers {
 	return &Handlers{
 		store:           store,
 		envOrchestrator: envOrchestrator,
+		argoLinks:       argoLinks,
+		repositories:    repositories,
 		logger:          logger,
 	}
 }
@@ -42,7 +48,14 @@ func (h *Handlers) Healthz(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (h *Handlers) Readyz(w http.ResponseWriter, _ *http.Request) {
+func (h *Handlers) Readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := h.envOrchestrator.Ready(ctx); err != nil {
+		h.logger.Warn("execution plane readiness probe failed", zap.Error(err))
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "execution plane unavailable"})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{
@@ -59,8 +72,21 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service := NewService(req)
-	h.store.Put(service)
+	if err := h.repositories.ValidateRepo(req.RepoURL); err != nil {
+		http.Error(w, "repository validation failed", http.StatusUnprocessableEntity)
+		return
+	}
+	projectType, err := h.repositories.DetectProjectType(req.RepoURL)
+	if err != nil {
+		http.Error(w, "project type detection failed", http.StatusUnprocessableEntity)
+		return
+	}
+	service := NewService(req, projectType)
+	if err := h.store.Put(service); err != nil {
+		h.logger.Error("failed to persist service", zap.Error(err))
+		http.Error(w, "failed to persist service", http.StatusInternalServerError)
+		return
+	}
 
 	h.logger.Info("service registered",
 		zap.String("service_id", service.ID.String()),
@@ -114,42 +140,33 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("submitting environment to orchestrator")
 
-	if _, err := h.envOrchestrator.Create(r.Context(), orchestrator.EnvironmentSpec{
+	env, err := h.envOrchestrator.Create(r.Context(), orchestrator.EnvironmentSpec{
 		Name:    req.Name,
 		Service: req.Service,
 		TTL:     ttl,
-	}); err != nil {
+	})
+	if err != nil {
 		h.logger.Error("failed to create environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	h.logger.Info("environment creation accepted")
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
-	// Expected path: /api/v1/environments/{name}
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 {
-		http.Error(w, "missing environment name", http.StatusBadRequest)
+	if err := h.store.PutEnvironment(env); err != nil {
+		h.logger.Error("environment submitted but reference persistence failed", zap.Error(err))
+		http.Error(w, "environment submitted but state persistence failed", http.StatusInternalServerError)
 		return
 	}
 
-	name := parts[len(parts)-1]
+	h.logger.Info("environment creation accepted")
+	writeJSON(w, http.StatusAccepted, env)
+}
+
+func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
 
 	ctx := r.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
-	/*
-		if _, err := h.envOrchestrator.Destroy(ctx, name); err != nil {
-			h.logger.Error("failed to delete environment", zap.Error(err))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	*/
 
 	env, err := h.store.GetEnvironment(name)
 	if err != nil {
@@ -158,16 +175,27 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.envOrchestrator.Destroy(
+	destroyRef, err := h.envOrchestrator.Destroy(
 		ctx,
 		name,
-		env.Spec.Service, // <-- critical
-	); err != nil {
-
+		env.Spec.Service,
+	)
+	if err != nil {
 		h.logger.Error("failed to delete environment", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	env.DestroyWorkflow = destroyRef
+	if err := h.store.PutEnvironment(env); err != nil {
+		h.logger.Error("destroy submitted but reference persistence failed", zap.Error(err))
+		http.Error(w, "destroy submitted but state persistence failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]interface{}{"environment": name, "destroy_workflow": destroyRef})
+}
 
-	w.WriteHeader(http.StatusAccepted)
+func writeJSON(w http.ResponseWriter, status int, value interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }
