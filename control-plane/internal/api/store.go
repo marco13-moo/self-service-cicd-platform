@@ -7,39 +7,55 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
 
 var ErrEnvironmentNotFound = errors.New("environment not found")
 var ErrServiceNotFound = errors.New("service not found")
+var ErrCommandNotFound = errors.New("SCM command not found")
 
 // ServiceStore is a concurrency-safe repository for control-plane intent and
 // immutable workflow references. When path is non-empty, mutations are durable.
 type ServiceStore struct {
-	mu               sync.RWMutex
-	path             string
-	services         map[string]Service
-	environments     map[string]*orchestrator.Environment
-	githubDeliveries map[string]time.Time
-	githubCommands   []GitHubWebhookCommand
+	mu            sync.RWMutex
+	path          string
+	services      map[string]Service
+	environments  map[string]*orchestrator.Environment
+	scmDeliveries map[string]time.Time
+	scmCommands   []scm.LifecycleCommand
 }
 
 type persistedState struct {
-	Services         map[string]Service                   `json:"services"`
-	Environments     map[string]*orchestrator.Environment `json:"environments"`
-	GitHubDeliveries map[string]time.Time                 `json:"github_deliveries,omitempty"`
-	GitHubCommands   []GitHubWebhookCommand               `json:"github_commands,omitempty"`
+	Services               map[string]Service                   `json:"services"`
+	Environments           map[string]*orchestrator.Environment `json:"environments"`
+	SCMDeliveries          map[string]time.Time                 `json:"scm_deliveries,omitempty"`
+	SCMCommands            []scm.LifecycleCommand               `json:"scm_commands,omitempty"`
+	LegacyGitHubDeliveries map[string]time.Time                 `json:"github_deliveries,omitempty"`
+	LegacyGitHubCommands   []legacyGitHubCommand                `json:"github_commands,omitempty"`
+}
+
+type legacyGitHubCommand struct {
+	DeliveryID     string    `json:"delivery_id"`
+	Type           string    `json:"type"`
+	Repository     string    `json:"repository"`
+	InstallationID int64     `json:"installation_id"`
+	PullRequest    int       `json:"pull_request"`
+	HeadSHA        string    `json:"head_sha"`
+	Environment    string    `json:"environment"`
+	ReceivedAt     time.Time `json:"received_at"`
 }
 
 func NewServiceStore() *ServiceStore {
 	return &ServiceStore{
-		services:         make(map[string]Service),
-		environments:     make(map[string]*orchestrator.Environment),
-		githubDeliveries: make(map[string]time.Time),
-		githubCommands:   make([]GitHubWebhookCommand, 0),
+		services:      make(map[string]Service),
+		environments:  make(map[string]*orchestrator.Environment),
+		scmDeliveries: make(map[string]time.Time),
+		scmCommands:   make([]scm.LifecycleCommand, 0),
 	}
 }
 
@@ -68,12 +84,13 @@ func NewPersistentServiceStore(path string) (*ServiceStore, error) {
 	if state.Environments != nil {
 		store.environments = state.Environments
 	}
-	if state.GitHubDeliveries != nil {
-		store.githubDeliveries = state.GitHubDeliveries
+	if state.SCMDeliveries != nil {
+		store.scmDeliveries = state.SCMDeliveries
 	}
-	if state.GitHubCommands != nil {
-		store.githubCommands = state.GitHubCommands
+	if state.SCMCommands != nil {
+		store.scmCommands = state.SCMCommands
 	}
+	store.migrateLegacyGitHubState(state)
 	return store, nil
 }
 
@@ -112,6 +129,19 @@ func (s *ServiceStore) List() []Service {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+func (s *ServiceStore) FindServiceByRepository(repository string) (Service, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	wanted := strings.ToLower(strings.TrimSuffix(strings.Trim(repository, "/"), ".git"))
+	for _, service := range s.services {
+		candidate := strings.ToLower(strings.TrimSuffix(strings.Trim(service.RepoURL, "/"), ".git"))
+		if candidate == wanted || strings.HasSuffix(candidate, "/"+wanted) || strings.HasSuffix(candidate, ":"+wanted) {
+			return service, nil
+		}
+	}
+	return Service{}, ErrServiceNotFound
 }
 
 func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
@@ -155,47 +185,114 @@ func (s *ServiceStore) DeleteEnvironment(name string) error {
 	return nil
 }
 
-// RecordGitHubDelivery atomically establishes delivery idempotency and appends
+// RecordSCMDelivery atomically establishes provider-scoped delivery idempotency and appends
 // a durable lifecycle command. A nil command records an accepted event that
 // intentionally has no downstream side effect.
-func (s *ServiceStore) RecordGitHubDelivery(deliveryID string, command *GitHubWebhookCommand, receivedAt time.Time) (bool, error) {
+func (s *ServiceStore) RecordSCMDelivery(provider scm.Provider, deliveryID string, command *scm.LifecycleCommand, receivedAt time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.githubDeliveries[deliveryID]; exists {
+	key := scm.DeliveryKey(provider, deliveryID)
+	if _, exists := s.scmDeliveries[key]; exists {
 		return true, nil
 	}
-	previousDeliveries := make(map[string]time.Time, len(s.githubDeliveries))
-	for id, timestamp := range s.githubDeliveries {
+	previousDeliveries := make(map[string]time.Time, len(s.scmDeliveries))
+	for id, timestamp := range s.scmDeliveries {
 		previousDeliveries[id] = timestamp
 	}
-	previousCommandCount := len(s.githubCommands)
+	previousCommandCount := len(s.scmCommands)
 
 	// GitHub delivery IDs are retained long enough to absorb realistic retries
 	// without allowing the single-writer state file to grow indefinitely.
 	cutoff := receivedAt.Add(-7 * 24 * time.Hour)
-	for id, timestamp := range s.githubDeliveries {
+	for id, timestamp := range s.scmDeliveries {
 		if timestamp.Before(cutoff) {
-			delete(s.githubDeliveries, id)
+			delete(s.scmDeliveries, id)
 		}
 	}
-	s.githubDeliveries[deliveryID] = receivedAt
+	s.scmDeliveries[key] = receivedAt
 	if command != nil {
-		s.githubCommands = append(s.githubCommands, *command)
+		s.scmCommands = append(s.scmCommands, *command)
 	}
 	if err := s.persistLocked(); err != nil {
-		s.githubDeliveries = previousDeliveries
-		s.githubCommands = s.githubCommands[:previousCommandCount]
+		s.scmDeliveries = previousDeliveries
+		s.scmCommands = s.scmCommands[:previousCommandCount]
 		return false, err
 	}
 	return false, nil
 }
 
-func (s *ServiceStore) GitHubCommands() []GitHubWebhookCommand {
+func (s *ServiceStore) SCMCommands() []scm.LifecycleCommand {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]GitHubWebhookCommand, len(s.githubCommands))
-	copy(out, s.githubCommands)
+	out := make([]scm.LifecycleCommand, len(s.scmCommands))
+	copy(out, s.scmCommands)
 	return out
+}
+
+func (s *ServiceStore) LeaseSCMCommand(now time.Time, leaseDuration time.Duration) (*scm.LifecycleCommand, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index := range s.scmCommands {
+		command := &s.scmCommands[index]
+		leaseExpired := command.Status == scm.CommandLeased && command.LeaseUntil != nil && !command.LeaseUntil.After(now)
+		eligible := (command.Status == scm.CommandPending || command.Status == scm.CommandFailed || leaseExpired) && !command.AvailableAt.After(now)
+		if !eligible {
+			continue
+		}
+		previous := *command
+		leaseUntil := now.Add(leaseDuration)
+		command.Status, command.LeaseUntil, command.Attempts, command.LastError = scm.CommandLeased, &leaseUntil, command.Attempts+1, ""
+		if err := s.persistLocked(); err != nil {
+			*command = previous
+			return nil, err
+		}
+		leased := *command
+		return &leased, nil
+	}
+	return nil, ErrCommandNotFound
+}
+
+func (s *ServiceStore) CompleteSCMCommand(id string, processingErr error, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index := range s.scmCommands {
+		command := &s.scmCommands[index]
+		if command.ID != id {
+			continue
+		}
+		previous := *command
+		command.LeaseUntil = nil
+		if processingErr == nil {
+			command.Status, command.LastError = scm.CommandSucceeded, ""
+		} else {
+			command.Status, command.LastError = scm.CommandFailed, processingErr.Error()
+			backoff := time.Duration(1<<min(command.Attempts, 6)) * time.Second
+			command.AvailableAt = now.Add(backoff)
+		}
+		if err := s.persistLocked(); err != nil {
+			*command = previous
+			return err
+		}
+		return nil
+	}
+	return ErrCommandNotFound
+}
+
+func (s *ServiceStore) migrateLegacyGitHubState(state persistedState) {
+	for id, timestamp := range state.LegacyGitHubDeliveries {
+		s.scmDeliveries[scm.DeliveryKey(scm.ProviderGitHub, id)] = timestamp
+	}
+	for _, legacy := range state.LegacyGitHubCommands {
+		commandType := scm.EnsurePreviewEnvironment
+		if legacy.Type == "destroy_preview_environment" {
+			commandType = scm.DestroyPreviewEnvironment
+		}
+		s.scmCommands = append(s.scmCommands, scm.LifecycleCommand{
+			ID: scm.DeliveryKey(scm.ProviderGitHub, legacy.DeliveryID), Provider: scm.ProviderGitHub, DeliveryID: legacy.DeliveryID,
+			Type: commandType, Repository: legacy.Repository, InstallationID: fmt.Sprint(legacy.InstallationID), PullRequest: legacy.PullRequest,
+			HeadSHA: legacy.HeadSHA, Environment: legacy.Environment, Status: scm.CommandPending, AvailableAt: legacy.ReceivedAt, CreatedAt: legacy.ReceivedAt,
+		})
+	}
 }
 
 // persistLocked performs a crash-safe same-directory temporary write followed
@@ -209,10 +306,10 @@ func (s *ServiceStore) persistLocked() error {
 		return fmt.Errorf("create state directory: %w", err)
 	}
 	data, err := json.MarshalIndent(persistedState{
-		Services:         s.services,
-		Environments:     s.environments,
-		GitHubDeliveries: s.githubDeliveries,
-		GitHubCommands:   s.githubCommands,
+		Services:      s.services,
+		Environments:  s.environments,
+		SCMDeliveries: s.scmDeliveries,
+		SCMCommands:   s.scmCommands,
 	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)

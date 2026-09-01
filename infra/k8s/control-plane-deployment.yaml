@@ -40,6 +40,21 @@ spec:
                 secretKeyRef:
                   name: github-app
                   key: webhook-secret
+                  optional: true
+            - name: BITBUCKET_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bitbucket-app
+                  key: webhook-secret
+                  optional: true
+            - name: PREVIEW_ENVIRONMENT_TTL
+              value: 2h
+            - name: BITBUCKET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bitbucket-app
+                  key: repository-token
+                  optional: true
           volumeMounts:
             - name: state
               mountPath: /var/lib/control-plane

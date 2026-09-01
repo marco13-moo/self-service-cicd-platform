@@ -10,6 +10,8 @@ import (
 
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
+	githubscm "github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm/github"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +38,7 @@ func (f *fakeEnvironmentOrchestrator) Ready(context.Context) error { return f.re
 
 func TestEnvironmentLifecycleRoutes(t *testing.T) {
 	store := NewServiceStore()
-	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, "test-secret", zap.NewNop())
+	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
 
 	create := httptest.NewRequest(http.MethodPost, "/api/v1/environments", bytes.NewBufferString(`{"name":"pr-42","service":"checkout","ttl":"1h"}`))
 	created := httptest.NewRecorder()
@@ -69,7 +71,7 @@ func TestEnvironmentLifecycleRoutes(t *testing.T) {
 
 func TestReadinessReflectsExecutionPlane(t *testing.T) {
 	orchestratorFake := &fakeEnvironmentOrchestrator{readyErr: errors.New("unavailable")}
-	router := NewRouter(NewServiceStore(), orchestratorFake, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, "test-secret", zap.NewNop())
+	router := NewRouter(NewServiceStore(), orchestratorFake, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if response.Code != http.StatusServiceUnavailable {

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; provider-specific domain and persistence portions superseded by ADR 0009
 
 ## Context
 

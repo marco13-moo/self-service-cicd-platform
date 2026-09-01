@@ -10,17 +10,18 @@ import (
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
 
 // Handlers owns all HTTP handlers for the control-plane API.
 // Dependencies are injected explicitly.
 type Handlers struct {
-	store               *ServiceStore
-	envOrchestrator     orchestrator.EnvironmentOrchestrator
-	argoLinks           *orchestrator.ArgoLinks
-	repositories        providers.RepositoryProvider
-	githubWebhookSecret string
-	logger              *zap.Logger
+	store           *ServiceStore
+	envOrchestrator orchestrator.EnvironmentOrchestrator
+	argoLinks       *orchestrator.ArgoLinks
+	repositories    providers.RepositoryProvider
+	webhookAdapters map[scm.Provider]scm.WebhookAdapter
+	logger          *zap.Logger
 }
 
 func NewHandlers(
@@ -28,16 +29,16 @@ func NewHandlers(
 	envOrchestrator orchestrator.EnvironmentOrchestrator,
 	argoLinks *orchestrator.ArgoLinks,
 	repositories providers.RepositoryProvider,
-	githubWebhookSecret string,
+	webhookAdapters map[scm.Provider]scm.WebhookAdapter,
 	logger *zap.Logger,
 ) *Handlers {
 	return &Handlers{
-		store:               store,
-		envOrchestrator:     envOrchestrator,
-		argoLinks:           argoLinks,
-		repositories:        repositories,
-		githubWebhookSecret: githubWebhookSecret,
-		logger:              logger,
+		store:           store,
+		envOrchestrator: envOrchestrator,
+		argoLinks:       argoLinks,
+		repositories:    repositories,
+		webhookAdapters: webhookAdapters,
+		logger:          logger,
 	}
 }
 

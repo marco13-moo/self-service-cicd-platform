@@ -23,8 +23,22 @@ func Load() *Config {
 			Namespace: getEnv("ARGO_NAMESPACE", "argo"),
 			UIBaseURL: getEnv("ARGO_UI_BASE_URL", "http://argo-server.argo.svc"),
 		},
-		GitHub: GitHubConfig{WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET")},
+		GitHub:     GitHubConfig{WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET")},
+		Bitbucket:  BitbucketConfig{WebhookSecret: os.Getenv("BITBUCKET_WEBHOOK_SECRET")},
+		Reconciler: ReconcilerConfig{PreviewTTL: getDurationEnv("PREVIEW_ENVIRONMENT_TTL", 2*time.Hour)},
 	}
+}
+
+func getDurationEnv(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func getEnv(key, fallback string) string {
