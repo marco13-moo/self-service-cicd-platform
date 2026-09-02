@@ -129,8 +129,12 @@ func New(
 	reconcileContext, cancelReconciliation := context.WithCancel(context.Background())
 
 	return &Server{
-		httpServer:           httpSrv,
-		reconciler:           reconciler.NewSCMCommandReconciler(store, commandStore, envOrchestrator, cfg.Reconciler.PreviewTTL, logger),
+		httpServer: httpSrv,
+		reconciler: reconciler.NewSCMCommandReconciler(store, commandStore, envOrchestrator, cfg.Reconciler.PreviewTTL, reconciler.PreviewRuntimeConfig{
+			ImageRepository: cfg.Preview.ImageRepository, BaseDomain: cfg.Preview.BaseDomain,
+			URLScheme: cfg.Preview.URLScheme, BuilderImage: cfg.Preview.BuilderImage,
+			RegistrySecretName: cfg.Preview.RegistrySecretName, RegistryInsecure: cfg.Preview.RegistryInsecure,
+		}, logger),
 		reconcileContext:     reconcileContext,
 		cancelReconciliation: cancelReconciliation,
 		database:             database,

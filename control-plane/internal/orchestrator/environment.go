@@ -23,13 +23,17 @@ type EnvironmentSpec struct {
 }
 
 type SourceRevision struct {
-	Provider    string `json:"provider"`
-	Repository  string `json:"repository"`
-	CloneURL    string `json:"clone_url,omitempty"`
-	PullRequest int    `json:"pull_request"`
-	DesiredSHA  string `json:"desired_sha"`
-	DeployedSHA string `json:"deployed_sha,omitempty"`
-	Generation  int64  `json:"generation"`
+	Provider          string `json:"provider"`
+	Repository        string `json:"repository"`
+	CloneURL          string `json:"clone_url,omitempty"`
+	PullRequest       int    `json:"pull_request"`
+	DesiredSHA        string `json:"desired_sha"`
+	DeployedSHA       string `json:"deployed_sha,omitempty"`
+	Generation        int64  `json:"generation"`
+	DesiredImage      string `json:"desired_image,omitempty"`
+	DeployedImage     string `json:"deployed_image,omitempty"`
+	DesiredPreviewURL string `json:"desired_preview_url,omitempty"`
+	PreviewURL        string `json:"preview_url,omitempty"`
 
 	// Deployment observation is derived from the current generation's Argo
 	// Workflow. It is persisted so API readers retain the last known outcome
@@ -37,6 +41,18 @@ type SourceRevision struct {
 	DeploymentPhase   string     `json:"deployment_phase,omitempty"`
 	DeploymentMessage string     `json:"deployment_message,omitempty"`
 	ObservedAt        *time.Time `json:"observed_at,omitempty"`
+}
+
+type PreviewDeployment struct {
+	ProjectType        string
+	ImageRef           string
+	ContainerPort      int
+	Dockerfile         string
+	PreviewHost        string
+	PreviewURL         string
+	BuilderImage       string
+	RegistrySecretName string
+	RegistryInsecure   bool
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.
@@ -95,7 +111,7 @@ type EnvironmentOrchestrator interface {
 	// Destroy submits intent to destroy an environment.
 	//Destroy(ctx context.Context, name string) (*WorkflowReference, error)
 	Destroy(ctx context.Context, name string, service string) (*WorkflowReference, error)
-	Deploy(ctx context.Context, env *Environment, projectType string) (*WorkflowReference, error)
+	Deploy(ctx context.Context, env *Environment, deployment PreviewDeployment) (*WorkflowReference, error)
 
 	// GetCreateStatus returns the current status of the create workflow.
 	//GetCreateStatus(ctx context.Context, env *Environment) (*WorkflowStatusView, error)

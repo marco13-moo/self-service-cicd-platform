@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers"
@@ -77,6 +80,22 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 		return
+	}
+	if problems := validation.IsDNS1123Label(req.Name); len(problems) != 0 {
+		http.Error(w, "service name must be a Kubernetes DNS label", http.StatusBadRequest)
+		return
+	}
+	if req.Deployment != nil {
+		if req.Deployment.ContainerPort < 0 || req.Deployment.ContainerPort > 65535 {
+			http.Error(w, "deployment container_port must be between 1 and 65535", http.StatusBadRequest)
+			return
+		}
+		dockerfile := strings.TrimSpace(req.Deployment.Dockerfile)
+		if dockerfile != "" && (path.IsAbs(dockerfile) || path.Clean(dockerfile) == ".." || strings.HasPrefix(path.Clean(dockerfile), "../")) {
+			http.Error(w, "deployment dockerfile must be a repository-relative path", http.StatusBadRequest)
+			return
+		}
+		req.Deployment.Dockerfile = dockerfile
 	}
 
 	if err := h.repositories.ValidateRepo(req.RepoURL); err != nil {

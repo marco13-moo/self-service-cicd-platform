@@ -72,3 +72,24 @@ func TestGetDeployStatusReadsCurrentWorkflow(t *testing.T) {
 		t.Fatalf("unexpected deployment status: %#v", status)
 	}
 }
+
+func TestDeploySubmitsImmutableImageAndRoutingContract(t *testing.T) {
+	executor := &recordingExecutor{}
+	orchestrator := NewArgoEnvironmentOrchestrator(executor)
+	env := &Environment{Spec: EnvironmentSpec{Name: "checkout-pr-42", Service: "checkout", Source: &SourceRevision{
+		CloneURL: "https://example.test/acme/checkout.git", DesiredSHA: "abc123",
+	}}}
+	_, err := orchestrator.Deploy(context.Background(), env, PreviewDeployment{
+		ProjectType: "go", ImageRef: "registry.test/previews/checkout:abc123", ContainerPort: 8080,
+		Dockerfile: "deploy/Dockerfile", PreviewHost: "checkout-pr-42.preview.test",
+		PreviewURL: "https://checkout-pr-42.preview.test", BuilderImage: "buildkit:test",
+		RegistrySecretName: "registry-credentials", RegistryInsecure: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parameters := executor.submissions[0].parameters
+	if parameters["image_ref"] != "registry.test/previews/checkout:abc123" || parameters["container_port"] != "8080" || parameters["registry_insecure"] != "true" {
+		t.Fatalf("unexpected deployment parameters: %#v", parameters)
+	}
+}

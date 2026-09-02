@@ -15,6 +15,7 @@ import (
 type fakeOrchestrator struct {
 	creates, deploys, destroys int
 	deployStatus               *wf.WorkflowStatus
+	lastDeployment             orchestrator.PreviewDeployment
 }
 
 func (f *fakeOrchestrator) Create(_ context.Context, spec orchestrator.EnvironmentSpec) (*orchestrator.Environment, error) {
@@ -25,8 +26,9 @@ func (f *fakeOrchestrator) Destroy(_ context.Context, name, _ string) (*orchestr
 	f.destroys++
 	return &orchestrator.WorkflowReference{Name: "destroy-" + name, Namespace: "argo"}, nil
 }
-func (f *fakeOrchestrator) Deploy(_ context.Context, _ *orchestrator.Environment, _ string) (*orchestrator.WorkflowReference, error) {
+func (f *fakeOrchestrator) Deploy(_ context.Context, _ *orchestrator.Environment, deployment orchestrator.PreviewDeployment) (*orchestrator.WorkflowReference, error) {
 	f.deploys++
+	f.lastDeployment = deployment
 	return &orchestrator.WorkflowReference{Name: "deploy", Namespace: "argo"}, nil
 }
 func (*fakeOrchestrator) GetCreateStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
@@ -46,12 +48,14 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	ensure := scm.LifecycleCommand{ID: "bitbucket:open", Provider: scm.ProviderBitbucket, DeliveryID: "open", Type: scm.EnsurePreviewEnvironment, Repository: "acme/checkout", PullRequest: 3, HeadSHA: "abc", Environment: "checkout-pr-3", Status: scm.CommandPending, AvailableAt: now, CreatedAt: now}
+	ensure := scm.LifecycleCommand{ID: "bitbucket:open", Provider: scm.ProviderBitbucket, DeliveryID: "open", Type: scm.EnsurePreviewEnvironment, Repository: "acme/checkout", PullRequest: 3, HeadSHA: "abc1234", Environment: "checkout-pr-3", Status: scm.CommandPending, AvailableAt: now, CreatedAt: now}
 	if _, err := store.RecordSCMDelivery(scm.ProviderBitbucket, "open", &ensure, now); err != nil {
 		t.Fatal(err)
 	}
 	fake := &fakeOrchestrator{}
-	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, zap.NewNop())
+	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, PreviewRuntimeConfig{
+		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", RegistrySecretName: "registry-credentials",
+	}, zap.NewNop())
 	if processed, err := reconciler.ProcessOne(context.Background(), now); err != nil || !processed {
 		t.Fatalf("ensure: processed=%v err=%v", processed, err)
 	}
@@ -60,6 +64,9 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	}
 	if fake.deploys != 1 {
 		t.Fatalf("expected one deployment, got %d", fake.deploys)
+	}
+	if fake.lastDeployment.ImageRef != "registry.example.test/previews/checkout:abc1234" || fake.lastDeployment.PreviewURL != "http://preview.checkout-pr-3.svc.cluster.local:8080" {
+		t.Fatalf("unexpected preview deployment: %#v", fake.lastDeployment)
 	}
 	env, err := store.GetEnvironment("checkout-pr-3")
 	if err != nil {
@@ -73,13 +80,13 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc" || env.Spec.Source.DeploymentPhase != "Succeeded" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout:abc1234" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
 		t.Fatalf("successful workflow was not promoted: %#v", env.Spec.Source)
 	}
 	update := ensure
 	update.ID = "bitbucket:update"
 	update.DeliveryID = "update"
-	update.HeadSHA = "def"
+	update.HeadSHA = "def5678"
 	update.Status = scm.CommandPending
 	if _, err := store.RecordSCMDelivery(scm.ProviderBitbucket, "update", &update, now); err != nil {
 		t.Fatal(err)
@@ -91,7 +98,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatalf("update should redeploy without reprovisioning: creates=%d deploys=%d", fake.creates, fake.deploys)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DesiredSHA != "def" || env.Spec.Source.DeployedSHA != "abc" || env.Spec.Source.DeploymentPhase != "Pending" {
+	if env.Spec.Source.DesiredSHA != "def5678" || env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeploymentPhase != "Pending" {
 		t.Fatalf("new generation should retain only the prior deployed SHA: %#v", env.Spec.Source)
 	}
 	fake.deployStatus = &wf.WorkflowStatus{Phase: wf.WorkflowFailed, Message: "build failed"}
@@ -99,7 +106,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
 		t.Fatalf("failed workflow must not promote its desired SHA: %#v", env.Spec.Source)
 	}
 

@@ -17,11 +17,26 @@ type Service struct {
 	Repository  scm.RepositoryIdentity `json:"repository"`
 	ProjectType string                 `json:"project_type"`
 	Environment string                 `json:"environment"`
+	Deployment  ServiceDeployment      `json:"deployment"`
 	CreatedAt   time.Time              `json:"created_at"`
+}
+
+type ServiceDeployment struct {
+	ContainerPort int    `json:"container_port"`
+	Dockerfile    string `json:"dockerfile"`
 }
 
 // NewService constructs a new immutable Service from an API contract.
 func NewService(req CreateServiceRequest, projectType string, repository scm.RepositoryIdentity) Service {
+	deployment := ServiceDeployment{ContainerPort: 8080, Dockerfile: "Dockerfile"}
+	if req.Deployment != nil {
+		if req.Deployment.ContainerPort != 0 {
+			deployment.ContainerPort = req.Deployment.ContainerPort
+		}
+		if req.Deployment.Dockerfile != "" {
+			deployment.Dockerfile = req.Deployment.Dockerfile
+		}
+	}
 	return Service{
 		ID:          uuid.New(),
 		Name:        req.Name,
@@ -30,6 +45,7 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 		Repository:  repository,
 		ProjectType: projectType,
 		Environment: req.Environment,
+		Deployment:  deployment,
 		CreatedAt:   time.Now().UTC(),
 	}
 }

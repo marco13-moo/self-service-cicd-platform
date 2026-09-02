@@ -5,15 +5,39 @@ metadata:
   namespace: argo
 spec:
   serviceAccountName: argo-env-admin
-  entrypoint: deploy-revision
+  entrypoint: build-and-deploy
   arguments:
     parameters:
       - name: env_name
+      - name: service
       - name: repository
       - name: commit_sha
       - name: project_type
+      - name: image_ref
+      - name: container_port
+      - name: dockerfile
+      - name: preview_host
+      - name: preview_url
+      - name: builder_image
+      - name: registry_secret_name
+      - name: registry_insecure
+  volumes:
+    - name: buildkit-state
+      emptyDir: {}
+    - name: registry-credentials
+      secret:
+        secretName: "{{workflow.parameters.registry_secret_name}}"
+        optional: true
   templates:
-    - name: deploy-revision
+    - name: build-and-deploy
+      dag:
+        tasks:
+          - name: build
+            template: build-image
+          - name: deploy
+            dependencies: [build]
+            template: deploy-workload
+    - name: build-image
       inputs:
         artifacts:
           - name: source
@@ -22,11 +46,121 @@ spec:
               repo: "{{workflow.parameters.repository}}"
               revision: "{{workflow.parameters.commit_sha}}"
       container:
-        image: alpine:3.22
+        image: "{{workflow.parameters.builder_image}}"
         workingDir: /workspace
-        command: [sh, -c]
+        command: [buildctl-daemonless.sh]
         args:
-          - |
-            set -eu
-            echo "Validated revision {{workflow.parameters.commit_sha}} for {{workflow.parameters.project_type}}"
-            echo "Deployment contract ready for namespace {{workflow.parameters.env_name}}"
+          - build
+          - --frontend
+          - dockerfile.v0
+          - --local
+          - context=/workspace
+          - --local
+          - dockerfile=/workspace
+          - --opt
+          - "filename={{workflow.parameters.dockerfile}}"
+          - --output
+          - "type=image,name={{workflow.parameters.image_ref}},push=true,registry.insecure={{workflow.parameters.registry_insecure}}"
+        env:
+          - name: BUILDKITD_FLAGS
+            value: --oci-worker-no-process-sandbox
+          - name: DOCKER_CONFIG
+            value: /home/user/.docker
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          seccompProfile:
+            type: Unconfined
+          appArmorProfile:
+            type: Unconfined
+        volumeMounts:
+          - name: buildkit-state
+            mountPath: /home/user/.local/share/buildkit
+          - name: registry-credentials
+            mountPath: /home/user/.docker
+            readOnly: true
+    - name: deploy-workload
+      script:
+        image: bitnami/kubectl@sha256:e0fcb25c485a8ad0665d0dd4b4a67cefb6baee32b0e3b19f54f1b468c49c1ed5
+        command: [sh]
+        source: |
+          set -eu
+          namespace='{{workflow.parameters.env_name}}'
+          image='{{workflow.parameters.image_ref}}'
+          port='{{workflow.parameters.container_port}}'
+          host='{{workflow.parameters.preview_host}}'
+          kubectl -n "$namespace" apply -f - <<EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: preview
+            labels:
+              app.kubernetes.io/name: preview
+              app.kubernetes.io/managed-by: self-service-cicd
+              platform.service: '{{workflow.parameters.service}}'
+              platform.environment: '{{workflow.parameters.env_name}}'
+              platform.revision: '{{workflow.parameters.commit_sha}}'
+              platform.project-type: '{{workflow.parameters.project_type}}'
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: preview
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: preview
+                  platform.service: '{{workflow.parameters.service}}'
+                  platform.environment: '{{workflow.parameters.env_name}}'
+                  platform.revision: '{{workflow.parameters.commit_sha}}'
+              spec:
+                containers:
+                  - name: application
+                    image: ${image}
+                    imagePullPolicy: Always
+                    ports:
+                      - name: http
+                        containerPort: ${port}
+                    readinessProbe:
+                      tcpSocket:
+                        port: http
+                    livenessProbe:
+                      tcpSocket:
+                        port: http
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: preview
+          spec:
+            selector:
+              app.kubernetes.io/name: preview
+            ports:
+              - name: http
+                port: ${port}
+                targetPort: http
+          EOF
+          if [ -n "$host" ]; then
+            kubectl -n "$namespace" apply -f - <<EOF
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: preview
+          spec:
+            rules:
+              - host: ${host}
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: preview
+                          port:
+                            name: http
+          EOF
+          else
+            kubectl -n "$namespace" delete ingress preview --ignore-not-found
+          fi
+          kubectl -n "$namespace" rollout status deployment/preview --timeout=5m
+          echo "Preview converged at {{workflow.parameters.preview_url}}"

@@ -212,7 +212,7 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 		return false, nil
 	}
 	source := env.Spec.Source
-	if source.DeploymentPhase == phase && source.DeploymentMessage == message && !(phase == "Succeeded" && source.DeployedSHA != source.DesiredSHA) {
+	if source.DeploymentPhase == phase && source.DeploymentMessage == message && !(phase == "Succeeded" && (source.DeployedSHA != source.DesiredSHA || source.DeployedImage != source.DesiredImage || source.PreviewURL != source.DesiredPreviewURL)) {
 		return false, nil
 	}
 	previous := cloneEnvironment(env)
@@ -222,6 +222,8 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 	source.ObservedAt = &stamp
 	if phase == "Succeeded" {
 		source.DeployedSHA = source.DesiredSHA
+		source.DeployedImage = source.DesiredImage
+		source.PreviewURL = source.DesiredPreviewURL
 	}
 	if err := s.persistLocked(); err != nil {
 		s.environments[name] = previous

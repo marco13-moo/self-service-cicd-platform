@@ -28,7 +28,7 @@ func (f *fakeEnvironmentOrchestrator) Create(_ context.Context, spec orchestrato
 func (f *fakeEnvironmentOrchestrator) Destroy(_ context.Context, name, _ string) (*orchestrator.WorkflowReference, error) {
 	return &orchestrator.WorkflowReference{Name: "destroy-" + name, Namespace: "argo"}, nil
 }
-func (f *fakeEnvironmentOrchestrator) Deploy(context.Context, *orchestrator.Environment, string) (*orchestrator.WorkflowReference, error) {
+func (f *fakeEnvironmentOrchestrator) Deploy(context.Context, *orchestrator.Environment, orchestrator.PreviewDeployment) (*orchestrator.WorkflowReference, error) {
 	return &orchestrator.WorkflowReference{Name: "deploy-1", Namespace: "argo"}, nil
 }
 func (f *fakeEnvironmentOrchestrator) GetCreateStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
@@ -83,5 +83,22 @@ func TestReadinessReflectsExecutionPlane(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readiness returned %d", response.Code)
+	}
+}
+
+func TestCreateServiceRejectsUnsafeDeploymentContract(t *testing.T) {
+	store := NewServiceStore()
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, nil, zap.NewNop())
+	tests := []string{
+		`{"name":"Invalid_Name","repo_url":"https://example.test/acme/app"}`,
+		`{"name":"app","repo_url":"https://example.test/acme/app","deployment":{"container_port":70000}}`,
+		`{"name":"app","repo_url":"https://example.test/acme/app","deployment":{"dockerfile":"../Dockerfile"}}`,
+	}
+	for _, body := range tests {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/services", bytes.NewBufferString(body)))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("unsafe service contract returned %d for %s", response.Code, body)
+		}
 	}
 }

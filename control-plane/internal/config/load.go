@@ -27,7 +27,23 @@ func Load() *Config {
 		Bitbucket:  BitbucketConfig{WebhookSecret: os.Getenv("BITBUCKET_WEBHOOK_SECRET"), OAuthClientID: os.Getenv("BITBUCKET_OAUTH_CLIENT_ID"), OAuthClientSecret: os.Getenv("BITBUCKET_OAUTH_CLIENT_SECRET")},
 		Reconciler: ReconcilerConfig{PreviewTTL: getDurationEnv("PREVIEW_ENVIRONMENT_TTL", 2*time.Hour)},
 		Database:   DatabaseConfig{URL: os.Getenv("DATABASE_URL")},
+		Preview: PreviewConfig{
+			ImageRepository:    os.Getenv("PREVIEW_IMAGE_REPOSITORY"),
+			BaseDomain:         os.Getenv("PREVIEW_BASE_DOMAIN"),
+			URLScheme:          getEnv("PREVIEW_URL_SCHEME", "https"),
+			BuilderImage:       getEnv("PREVIEW_BUILDER_IMAGE", "moby/buildkit:v0.33.0-rootless"),
+			RegistrySecretName: getEnv("PREVIEW_REGISTRY_SECRET", "registry-credentials"),
+			RegistryInsecure:   getEnvBool("PREVIEW_REGISTRY_INSECURE", false),
+		},
 	}
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value == "true" || value == "1"
 }
 
 func getDurationEnv(key string, fallback time.Duration) time.Duration {

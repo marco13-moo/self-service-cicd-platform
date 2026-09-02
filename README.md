@@ -22,11 +22,11 @@ Phases 1–7 are implemented:
 - Separate GitHub App and Bitbucket OAuth authentication implementations
 
 Phase 8 now includes provider-neutral webhook ingestion, durable commands,
-authentication boundaries, and preview-environment reconciliation. Revision-aware
-preview deployment, PostgreSQL-backed distributed command leasing, durable Argo
-TTL enforcement, and generation-safe deployed-revision observation are implemented.
-Project-specific workload deployment and preview URL discovery remain future
-increments.
+authentication boundaries, and preview-environment reconciliation. Exact source
+revisions are built into OCI images by rootless BuildKit, deployed into their
+preview namespaces, and exposed through either Ingress or cluster-local Service
+DNS. PostgreSQL-backed distributed command leasing, durable TTL enforcement, and
+generation-safe publication of deployed revisions, images, and URLs are implemented.
 
 ## Architecture
 
@@ -72,6 +72,24 @@ Example environment request:
 }
 ```
 
+Preview-capable services declare their container contract when registered:
+
+```json
+{
+  "name": "checkout",
+  "owner": "payments-platform",
+  "repo_url": "https://github.com/acme/checkout",
+  "environment": "production",
+  "deployment": {
+    "container_port": 8080,
+    "dockerfile": "Dockerfile"
+  }
+}
+```
+
+The deployment block is optional; its defaults are port `8080` and a root-level
+`Dockerfile`.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -91,6 +109,12 @@ Example environment request:
 | `BITBUCKET_OAUTH_CLIENT_ID` | unset | Bitbucket OAuth consumer client ID |
 | `BITBUCKET_OAUTH_CLIENT_SECRET` | unset | Bitbucket OAuth consumer secret |
 | `PREVIEW_ENVIRONMENT_TTL` | `2h` | TTL assigned by the SCM command reconciler |
+| `PREVIEW_IMAGE_REPOSITORY` | unset | Required OCI repository prefix for preview images |
+| `PREVIEW_BUILDER_IMAGE` | `moby/buildkit:v0.33.0-rootless` | Rootless BuildKit executor image |
+| `PREVIEW_REGISTRY_SECRET` | `registry-credentials` | Optional Docker config Secret mounted into builds |
+| `PREVIEW_REGISTRY_INSECURE` | `false` | Permit HTTP/insecure registry transport for local clusters only |
+| `PREVIEW_BASE_DOMAIN` | unset | Wildcard DNS suffix; when unset, publish cluster-local Service URLs |
+| `PREVIEW_URL_SCHEME` | `https` | Scheme used for externally routed preview URLs |
 | `DATABASE_URL` | unset | PostgreSQL connection URL for distributed command leasing; file queue is the fallback |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
@@ -129,3 +153,5 @@ Revision convergence and failure semantics are specified in
 [`ADR 0010`](docs/adr/0010-revision-aware-preview-reconciliation.md).
 TTL enforcement and generation-safe deployment observation are specified in
 [`ADR 0011`](docs/adr/0011-ttl-enforcement-and-deployment-observation.md).
+OCI construction, namespace deployment, and preview routing are specified in
+[`ADR 0012`](docs/adr/0012-oci-preview-build-deployment-and-routing.md).

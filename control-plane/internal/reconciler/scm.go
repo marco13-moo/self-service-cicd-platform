@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
@@ -12,17 +14,32 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	imageComponentSanitizer = regexp.MustCompile(`[^a-z0-9._-]+`)
+	commitSHA               = regexp.MustCompile(`^[a-fA-F0-9]{7,64}$`)
+)
+
 type SCMCommandReconciler struct {
 	store         *api.ServiceStore
 	commands      api.SCMCommandStore
 	orchestrator  orchestrator.EnvironmentOrchestrator
 	previewTTL    time.Duration
+	preview       PreviewRuntimeConfig
 	leaseDuration time.Duration
 	logger        *zap.Logger
 }
 
-func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, logger *zap.Logger) *SCMCommandReconciler {
-	return &SCMCommandReconciler{store: store, commands: commands, orchestrator: envOrchestrator, previewTTL: previewTTL, leaseDuration: 30 * time.Second, logger: logger}
+type PreviewRuntimeConfig struct {
+	ImageRepository    string
+	BaseDomain         string
+	URLScheme          string
+	BuilderImage       string
+	RegistrySecretName string
+	RegistryInsecure   bool
+}
+
+func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, preview PreviewRuntimeConfig, logger *zap.Logger) *SCMCommandReconciler {
+	return &SCMCommandReconciler{store: store, commands: commands, orchestrator: envOrchestrator, previewTTL: previewTTL, preview: preview, leaseDuration: 30 * time.Second, logger: logger}
 }
 
 func (r *SCMCommandReconciler) Run(ctx context.Context) {
@@ -111,7 +128,11 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 				return err
 			}
 		}
-		if env.Spec.Source != nil && env.Spec.Source.DesiredSHA == command.HeadSHA && env.DeployWorkflow != nil {
+		deployment, err := r.previewDeployment(service, env.Spec.Name, command.HeadSHA)
+		if err != nil {
+			return err
+		}
+		if env.Spec.Source != nil && env.Spec.Source.DesiredSHA == command.HeadSHA && env.Spec.Source.DesiredImage == deployment.ImageRef && env.DeployWorkflow != nil {
 			return nil
 		}
 		generation := int64(1)
@@ -120,8 +141,19 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			generation = env.Spec.Source.Generation + 1
 			deployed = env.Spec.Source.DeployedSHA
 		}
-		env.Spec.Source = &orchestrator.SourceRevision{Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL, PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed, Generation: generation, DeploymentPhase: "Pending"}
-		ref, err := r.orchestrator.Deploy(ctx, env, service.ProjectType)
+		deployedImage := ""
+		previewURL := ""
+		if env.Spec.Source != nil {
+			deployedImage = env.Spec.Source.DeployedImage
+			previewURL = env.Spec.Source.PreviewURL
+		}
+		env.Spec.Source = &orchestrator.SourceRevision{
+			Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL,
+			PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed,
+			Generation: generation, DeploymentPhase: "Pending", DesiredImage: deployment.ImageRef,
+			DeployedImage: deployedImage, DesiredPreviewURL: deployment.PreviewURL, PreviewURL: previewURL,
+		}
+		ref, err := r.orchestrator.Deploy(ctx, env, deployment)
 		if err != nil {
 			return err
 		}
@@ -147,4 +179,51 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 	default:
 		return fmt.Errorf("unsupported lifecycle command %q", command.Type)
 	}
+}
+
+func (r *SCMCommandReconciler) previewDeployment(service api.Service, environment, sha string) (orchestrator.PreviewDeployment, error) {
+	repository := strings.TrimSuffix(strings.TrimSpace(r.preview.ImageRepository), "/")
+	if repository == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_IMAGE_REPOSITORY is required for preview builds")
+	}
+	if strings.TrimSpace(r.preview.BuilderImage) == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_BUILDER_IMAGE is required for preview builds")
+	}
+	port := service.Deployment.ContainerPort
+	if port == 0 {
+		port = 8080
+	}
+	dockerfile := service.Deployment.Dockerfile
+	if dockerfile == "" {
+		dockerfile = "Dockerfile"
+	}
+	imageName := service.Repository.Name
+	if imageName == "" {
+		imageName = service.Name
+	}
+	imageName = strings.Trim(imageComponentSanitizer.ReplaceAllString(strings.ToLower(imageName), "-"), ".-_")
+	if imageName == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("service %q does not yield a valid OCI repository component", service.Name)
+	}
+	if !commitSHA.MatchString(sha) {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("source revision must be a hexadecimal commit SHA")
+	}
+	imageRef := repository + "/" + imageName + ":" + strings.ToLower(sha)
+	baseDomain := strings.Trim(strings.TrimSpace(r.preview.BaseDomain), ".")
+	host := ""
+	previewURL := fmt.Sprintf("http://preview.%s.svc.cluster.local:%d", environment, port)
+	if baseDomain != "" {
+		host = environment + "." + baseDomain
+		scheme := strings.TrimSpace(r.preview.URLScheme)
+		if scheme == "" {
+			scheme = "https"
+		}
+		previewURL = scheme + "://" + host
+	}
+	return orchestrator.PreviewDeployment{
+		ProjectType: service.ProjectType, ImageRef: imageRef, ContainerPort: port,
+		Dockerfile: dockerfile, PreviewHost: host, PreviewURL: previewURL,
+		BuilderImage: r.preview.BuilderImage, RegistrySecretName: r.preview.RegistrySecretName,
+		RegistryInsecure: r.preview.RegistryInsecure,
+	}, nil
 }

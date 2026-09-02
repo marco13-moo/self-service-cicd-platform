@@ -16,6 +16,7 @@ type Config struct {
 	Bitbucket  BitbucketConfig
 	Reconciler ReconcilerConfig
 	Database   DatabaseConfig
+	Preview    PreviewConfig
 }
 
 type HTTPConfig struct {
@@ -46,3 +47,12 @@ type BitbucketConfig struct{ WebhookSecret, OAuthClientID, OAuthClientSecret str
 
 type ReconcilerConfig struct{ PreviewTTL time.Duration }
 type DatabaseConfig struct{ URL string }
+
+type PreviewConfig struct {
+	ImageRepository    string
+	BaseDomain         string
+	URLScheme          string
+	BuilderImage       string
+	RegistrySecretName string
+	RegistryInsecure   bool
+}

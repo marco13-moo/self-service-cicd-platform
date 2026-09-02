@@ -59,7 +59,9 @@ func TestObserveDeploymentRejectsStaleGenerationAndPromotesCurrentSHA(t *testing
 		Spec: orchestrator.EnvironmentSpec{
 			Name: "pr-42",
 			Source: &orchestrator.SourceRevision{
-				DesiredSHA: "new-sha", DeployedSHA: "old-sha", Generation: 2, DeploymentPhase: "Pending",
+				DesiredSHA: "new-sha", DeployedSHA: "old-sha", DesiredImage: "registry.test/app:new-sha",
+				DeployedImage: "registry.test/app:old-sha", DesiredPreviewURL: "https://pr-42.example.test",
+				Generation: 2, DeploymentPhase: "Pending",
 			},
 		},
 		DeployWorkflow: &orchestrator.WorkflowReference{Name: "deploy-new", Namespace: "argo"},
@@ -77,7 +79,7 @@ func TestObserveDeploymentRejectsStaleGenerationAndPromotesCurrentSHA(t *testing
 		t.Fatalf("current observation: updated=%v err=%v", updated, err)
 	}
 	got, _ := store.GetEnvironment("pr-42")
-	if got.Spec.Source.DeployedSHA != "new-sha" || got.Spec.Source.DeploymentPhase != "Succeeded" || got.Spec.Source.ObservedAt == nil {
+	if got.Spec.Source.DeployedSHA != "new-sha" || got.Spec.Source.DeployedImage != "registry.test/app:new-sha" || got.Spec.Source.PreviewURL != "https://pr-42.example.test" || got.Spec.Source.DeploymentPhase != "Succeeded" || got.Spec.Source.ObservedAt == nil {
 		t.Fatalf("current deployment was not promoted: %#v", got.Spec.Source)
 	}
 

@@ -155,7 +155,7 @@ func (e *ArgoEnvironmentOrchestrator) Destroy(
 	return &ref, nil
 }
 
-func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environment, projectType string) (*WorkflowReference, error) {
+func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environment, deployment PreviewDeployment) (*WorkflowReference, error) {
 	if env.Spec.Source == nil {
 		return nil, fmt.Errorf("environment source revision is required")
 	}
@@ -165,7 +165,15 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 	if cloneURL == "" {
 		cloneURL = env.Spec.Source.Repository
 	}
-	params := map[string]string{"env_name": env.Spec.Name, "repository": cloneURL, "commit_sha": env.Spec.Source.DesiredSHA, "project_type": projectType}
+	params := map[string]string{
+		"env_name": env.Spec.Name, "service": env.Spec.Service, "repository": cloneURL,
+		"commit_sha": env.Spec.Source.DesiredSHA, "project_type": deployment.ProjectType,
+		"image_ref": deployment.ImageRef, "container_port": fmt.Sprintf("%d", deployment.ContainerPort),
+		"dockerfile": deployment.Dockerfile, "preview_host": deployment.PreviewHost,
+		"preview_url": deployment.PreviewURL, "builder_image": deployment.BuilderImage,
+		"registry_secret_name": deployment.RegistrySecretName,
+		"registry_insecure":    fmt.Sprintf("%t", deployment.RegistryInsecure),
+	}
 	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
 	workflow, err := e.exec.SubmitFromTemplate(ctx, "env-deploy-template", "env-deploy-", params, labels)
 	if err != nil {

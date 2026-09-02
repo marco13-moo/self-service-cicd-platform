@@ -49,6 +49,12 @@ spec:
                   optional: true
             - name: PREVIEW_ENVIRONMENT_TTL
               value: 2h
+            - name: PREVIEW_IMAGE_REPOSITORY
+              value: registry.example.com/platform-previews
+            - name: PREVIEW_BUILDER_IMAGE
+              value: moby/buildkit:v0.33.0-rootless
+            - name: PREVIEW_REGISTRY_SECRET
+              value: registry-credentials
             - name: BITBUCKET_TOKEN
               valueFrom:
                 secretKeyRef:
