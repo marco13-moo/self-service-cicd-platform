@@ -17,6 +17,7 @@ type EnvironmentSpec struct {
 	Name       string            `json:"name"`
 	Service    string            `json:"service"`
 	TTL        time.Duration     `json:"ttl"`
+	ExpiresAt  time.Time         `json:"expires_at"`
 	Parameters map[string]string `json:"parameters,omitempty"`
 	Source     *SourceRevision   `json:"source,omitempty"`
 }
@@ -29,6 +30,13 @@ type SourceRevision struct {
 	DesiredSHA  string `json:"desired_sha"`
 	DeployedSHA string `json:"deployed_sha,omitempty"`
 	Generation  int64  `json:"generation"`
+
+	// Deployment observation is derived from the current generation's Argo
+	// Workflow. It is persisted so API readers retain the last known outcome
+	// while Argo remains the authoritative execution plane.
+	DeploymentPhase   string     `json:"deployment_phase,omitempty"`
+	DeploymentMessage string     `json:"deployment_message,omitempty"`
+	ObservedAt        *time.Time `json:"observed_at,omitempty"`
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.
@@ -98,6 +106,7 @@ type EnvironmentOrchestrator interface {
 	GetCreateStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
 
 	GetTTLStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
+	GetDeployStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
 
 	// Ready verifies connectivity to the authoritative execution plane.
 	Ready(ctx context.Context) error

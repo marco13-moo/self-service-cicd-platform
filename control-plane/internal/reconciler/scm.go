@@ -29,7 +29,11 @@ func (r *SCMCommandReconciler) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if _, err := r.ProcessOne(ctx, time.Now().UTC()); err != nil && !errors.Is(err, api.ErrCommandNotFound) {
+		now := time.Now().UTC()
+		if err := r.ObserveDeployments(ctx, now); err != nil {
+			r.logger.Error("deployment observation failed", zap.Error(err))
+		}
+		if _, err := r.ProcessOne(ctx, now); err != nil && !errors.Is(err, api.ErrCommandNotFound) {
 			r.logger.Error("SCM command reconciliation failed", zap.Error(err))
 		}
 		select {
@@ -37,6 +41,39 @@ func (r *SCMCommandReconciler) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// ObserveDeployments projects live Argo outcomes into durable control-plane
+// state. The store performs the generation/workflow compare-and-set, making a
+// late observation from an obsolete deployment harmless.
+func (r *SCMCommandReconciler) ObserveDeployments(ctx context.Context, observedAt time.Time) error {
+	var observationErrors []error
+	for _, env := range r.store.ListEnvironments() {
+		if env.Spec.Source == nil || env.DeployWorkflow == nil || deploymentTerminal(env.Spec.Source.DeploymentPhase) {
+			continue
+		}
+		status, err := r.orchestrator.GetDeployStatus(ctx, env)
+		if err != nil {
+			observationErrors = append(observationErrors, fmt.Errorf("observe deployment %s: %w", env.DeployWorkflow.Name, err))
+			continue
+		}
+		if status == nil || status.Phase == "" {
+			continue
+		}
+		if _, err := r.store.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, string(status.Phase), status.Message, observedAt); err != nil {
+			observationErrors = append(observationErrors, fmt.Errorf("persist deployment observation for %s: %w", env.Spec.Name, err))
+		}
+	}
+	return errors.Join(observationErrors...)
+}
+
+func deploymentTerminal(phase string) bool {
+	switch phase {
+	case "Succeeded", "Failed", "Error":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -83,7 +120,7 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			generation = env.Spec.Source.Generation + 1
 			deployed = env.Spec.Source.DeployedSHA
 		}
-		env.Spec.Source = &orchestrator.SourceRevision{Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL, PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed, Generation: generation}
+		env.Spec.Source = &orchestrator.SourceRevision{Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL, PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed, Generation: generation, DeploymentPhase: "Pending"}
 		ref, err := r.orchestrator.Deploy(ctx, env, service.ProjectType)
 		if err != nil {
 			return err

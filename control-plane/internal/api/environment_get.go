@@ -9,10 +9,8 @@ import (
 
 // GetEnvironment returns a unified, live view of an environment.
 //
-// It:
-// - Does NOT read from storage
-// - Does NOT cache
-// - Queries execution state on demand
+// It combines durable control-plane intent and observations with current Argo
+// workflow state. Execution state is queried on demand and never cached here.
 func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 	envName := r.PathValue("name")
 	if envName == "" {
@@ -46,7 +44,9 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 			"name":        env.Spec.Name,
 			"service":     env.Spec.Service,
 			"ttl_seconds": int64(env.Spec.TTL.Seconds()),
+			"expires_at":  env.Spec.ExpiresAt,
 			"parameters":  env.Spec.Parameters,
+			"source":      env.Spec.Source,
 		},
 		"workflows": map[string]interface{}{
 			"create": map[string]interface{}{
@@ -66,6 +66,18 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 		resp["workflows"].(map[string]interface{})["ttl"] = map[string]interface{}{
 			"reference": ToWorkflowReferenceResponse(*env.TTLWorkflow),
 			"status":    toWorkflowStatusResponse(ttlStatus),
+		}
+	}
+
+	if env.DeployWorkflow != nil {
+		deployStatus, err := h.envOrchestrator.GetDeployStatus(r.Context(), env)
+		if err != nil {
+			http.Error(w, "failed to query deploy workflow", http.StatusBadGateway)
+			return
+		}
+		resp["workflows"].(map[string]interface{})["deploy"] = map[string]interface{}{
+			"reference": ToWorkflowReferenceResponse(*env.DeployWorkflow),
+			"status":    toWorkflowStatusResponse(deployStatus),
 		}
 	}
 

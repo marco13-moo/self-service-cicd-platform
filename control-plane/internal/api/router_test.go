@@ -37,6 +37,9 @@ func (f *fakeEnvironmentOrchestrator) GetCreateStatus(context.Context, *orchestr
 func (f *fakeEnvironmentOrchestrator) GetTTLStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
 	return nil, nil
 }
+func (f *fakeEnvironmentOrchestrator) GetDeployStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
+	return nil, nil
+}
 func (f *fakeEnvironmentOrchestrator) Ready(context.Context) error { return f.readyErr }
 
 func TestEnvironmentLifecycleRoutes(t *testing.T) {

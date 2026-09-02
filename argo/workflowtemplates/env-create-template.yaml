@@ -9,7 +9,7 @@ spec:
   templates:
     - name: create-namespace
       script:
-        image: bitnami/kubectl:latest
+        image: bitnami/kubectl@sha256:e0fcb25c485a8ad0665d0dd4b4a67cefb6baee32b0e3b19f54f1b468c49c1ed5
         imagePullPolicy: IfNotPresent
         command: [sh]
         source: |

@@ -10,23 +10,23 @@ spec:
     parameters:
       - name: env_name
       - name: expires_at
+      - name: ttl_duration
   templates:
     - name: cleanup
-      script:
-        image: bitnami/kubectl:1.29
-        command: [sh]
-        source: |
-          set -e
-
-          echo "Checking TTL for environment: {{workflow.parameters.env_name}}"
-          echo "Expires at: {{workflow.parameters.expires_at}}"
-
-          now=$(date -u +%s)
-          expiry=$(date -u -d "{{workflow.parameters.expires_at}}" +%s)
-
-          if [ "$now" -ge "$expiry" ]; then
-            echo "TTL expired, deleting namespace {{workflow.parameters.env_name}}"
+      steps:
+        - - name: wait-until-expired
+            template: wait-until-expired
+        - - name: delete-expired-namespace
+            template: delete-expired-namespace
+    - name: wait-until-expired
+      suspend:
+        duration: "{{workflow.parameters.ttl_duration}}"
+    - name: delete-expired-namespace
+      container:
+        image: bitnami/kubectl@sha256:e0fcb25c485a8ad0665d0dd4b4a67cefb6baee32b0e3b19f54f1b468c49c1ed5
+        command: [sh, -c]
+        args:
+          - |
+            set -e
+            echo "TTL expired at {{workflow.parameters.expires_at}}; deleting {{workflow.parameters.env_name}}"
             kubectl delete namespace {{workflow.parameters.env_name}} --ignore-not-found
-          else
-            echo "Environment not expired yet"
-          fi

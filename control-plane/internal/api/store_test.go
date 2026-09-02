@@ -52,3 +52,39 @@ func TestPersistentServiceStoreRoundTrip(t *testing.T) {
 		t.Fatalf("delivery idempotency was not restored: duplicate=%v err=%v", duplicate, err)
 	}
 }
+
+func TestObserveDeploymentRejectsStaleGenerationAndPromotesCurrentSHA(t *testing.T) {
+	store := NewServiceStore()
+	env := &orchestrator.Environment{
+		Spec: orchestrator.EnvironmentSpec{
+			Name: "pr-42",
+			Source: &orchestrator.SourceRevision{
+				DesiredSHA: "new-sha", DeployedSHA: "old-sha", Generation: 2, DeploymentPhase: "Pending",
+			},
+		},
+		DeployWorkflow: &orchestrator.WorkflowReference{Name: "deploy-new", Namespace: "argo"},
+	}
+	if err := store.PutEnvironment(env); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.ObserveDeployment("pr-42", "deploy-old", 1, "Succeeded", "stale", time.Now())
+	if err != nil || updated {
+		t.Fatalf("stale observation: updated=%v err=%v", updated, err)
+	}
+	updated, err = store.ObserveDeployment("pr-42", "deploy-new", 2, "Succeeded", "complete", time.Now())
+	if err != nil || !updated {
+		t.Fatalf("current observation: updated=%v err=%v", updated, err)
+	}
+	got, _ := store.GetEnvironment("pr-42")
+	if got.Spec.Source.DeployedSHA != "new-sha" || got.Spec.Source.DeploymentPhase != "Succeeded" || got.Spec.Source.ObservedAt == nil {
+		t.Fatalf("current deployment was not promoted: %#v", got.Spec.Source)
+	}
+
+	// Returned values are detached snapshots; mutation cannot bypass persistence.
+	got.Spec.Source.DeployedSHA = "corrupt"
+	stored, _ := store.GetEnvironment("pr-42")
+	if stored.Spec.Source.DeployedSHA != "new-sha" {
+		t.Fatalf("external mutation escaped snapshot boundary: %#v", stored.Spec.Source)
+	}
+}

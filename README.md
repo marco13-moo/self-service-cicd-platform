@@ -23,7 +23,9 @@ Phases 1–7 are implemented:
 
 Phase 8 now includes provider-neutral webhook ingestion, durable commands,
 authentication boundaries, and preview-environment reconciliation. Revision-aware
-preview deployment and a horizontally scalable command repository remain future
+preview deployment, PostgreSQL-backed distributed command leasing, durable Argo
+TTL enforcement, and generation-safe deployed-revision observation are implemented.
+Project-specific workload deployment and preview URL discovery remain future
 increments.
 
 ## Architecture
@@ -125,3 +127,5 @@ The provider-neutral domain, adapter, authentication, and reconciliation model i
 specified in [`ADR 0009`](docs/adr/0009-provider-neutral-source-control-boundary.md).
 Revision convergence and failure semantics are specified in
 [`ADR 0010`](docs/adr/0010-revision-aware-preview-reconciliation.md).
+TTL enforcement and generation-safe deployment observation are specified in
+[`ADR 0011`](docs/adr/0011-ttl-enforcement-and-deployment-observation.md).

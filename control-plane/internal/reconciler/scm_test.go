@@ -12,7 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-type fakeOrchestrator struct{ creates, deploys, destroys int }
+type fakeOrchestrator struct {
+	creates, deploys, destroys int
+	deployStatus               *wf.WorkflowStatus
+}
 
 func (f *fakeOrchestrator) Create(_ context.Context, spec orchestrator.EnvironmentSpec) (*orchestrator.Environment, error) {
 	f.creates++
@@ -31,6 +34,9 @@ func (*fakeOrchestrator) GetCreateStatus(context.Context, *orchestrator.Environm
 }
 func (*fakeOrchestrator) GetTTLStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
 	return nil, nil
+}
+func (f *fakeOrchestrator) GetDeployStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
+	return f.deployStatus, nil
 }
 func (*fakeOrchestrator) Ready(context.Context) error { return nil }
 
@@ -62,6 +68,14 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	if env.Spec.Source.Repository != "acme/checkout" || env.Spec.Source.CloneURL != "https://bitbucket.org/acme/checkout" {
 		t.Fatalf("unexpected source identity: %#v", env.Spec.Source)
 	}
+	fake.deployStatus = &wf.WorkflowStatus{Phase: wf.WorkflowSucceeded}
+	if err := reconciler.ObserveDeployments(context.Background(), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	env, _ = store.GetEnvironment("checkout-pr-3")
+	if env.Spec.Source.DeployedSHA != "abc" || env.Spec.Source.DeploymentPhase != "Succeeded" {
+		t.Fatalf("successful workflow was not promoted: %#v", env.Spec.Source)
+	}
 	update := ensure
 	update.ID = "bitbucket:update"
 	update.DeliveryID = "update"
@@ -75,6 +89,18 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	}
 	if fake.creates != 1 || fake.deploys != 2 {
 		t.Fatalf("update should redeploy without reprovisioning: creates=%d deploys=%d", fake.creates, fake.deploys)
+	}
+	env, _ = store.GetEnvironment("checkout-pr-3")
+	if env.Spec.Source.DesiredSHA != "def" || env.Spec.Source.DeployedSHA != "abc" || env.Spec.Source.DeploymentPhase != "Pending" {
+		t.Fatalf("new generation should retain only the prior deployed SHA: %#v", env.Spec.Source)
+	}
+	fake.deployStatus = &wf.WorkflowStatus{Phase: wf.WorkflowFailed, Message: "build failed"}
+	if err := reconciler.ObserveDeployments(context.Background(), now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	env, _ = store.GetEnvironment("checkout-pr-3")
+	if env.Spec.Source.DeployedSHA != "abc" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
+		t.Fatalf("failed workflow must not promote its desired SHA: %#v", env.Spec.Source)
 	}
 
 	closeCommand := scm.LifecycleCommand{ID: "bitbucket:close", Provider: scm.ProviderBitbucket, DeliveryID: "close", Type: scm.DestroyPreviewEnvironment, Repository: "acme/checkout", PullRequest: 3, Environment: "checkout-pr-3", Status: scm.CommandPending, AvailableAt: now, CreatedAt: now}

@@ -159,7 +159,7 @@ func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, existed := s.environments[env.Spec.Name]
-	s.environments[env.Spec.Name] = env
+	s.environments[env.Spec.Name] = cloneEnvironment(env)
 	if err := s.persistLocked(); err != nil {
 		if existed {
 			s.environments[env.Spec.Name] = previous
@@ -178,7 +178,91 @@ func (s *ServiceStore) GetEnvironment(name string) (*orchestrator.Environment, e
 	if !ok {
 		return nil, ErrEnvironmentNotFound
 	}
-	return env, nil
+	return cloneEnvironment(env), nil
+}
+
+// ListEnvironments returns detached snapshots so observers cannot mutate the
+// authoritative store without passing through an atomic persistence boundary.
+func (s *ServiceStore) ListEnvironments() []*orchestrator.Environment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	names := make([]string, 0, len(s.environments))
+	for name := range s.environments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*orchestrator.Environment, 0, len(names))
+	for _, name := range names {
+		out = append(out, cloneEnvironment(s.environments[name]))
+	}
+	return out
+}
+
+// ObserveDeployment performs a generation-aware compare-and-set. A terminal
+// result from an obsolete Workflow is ignored rather than being allowed to
+// promote the desired SHA of a newer deployment generation.
+func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation int64, phase, message string, observedAt time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	env, ok := s.environments[name]
+	if !ok {
+		return false, ErrEnvironmentNotFound
+	}
+	if env.Spec.Source == nil || env.DeployWorkflow == nil || env.DeployWorkflow.Name != workflowName || env.Spec.Source.Generation != generation {
+		return false, nil
+	}
+	source := env.Spec.Source
+	if source.DeploymentPhase == phase && source.DeploymentMessage == message && !(phase == "Succeeded" && source.DeployedSHA != source.DesiredSHA) {
+		return false, nil
+	}
+	previous := cloneEnvironment(env)
+	stamp := observedAt.UTC()
+	source.DeploymentPhase = phase
+	source.DeploymentMessage = message
+	source.ObservedAt = &stamp
+	if phase == "Succeeded" {
+		source.DeployedSHA = source.DesiredSHA
+	}
+	if err := s.persistLocked(); err != nil {
+		s.environments[name] = previous
+		return false, err
+	}
+	return true, nil
+}
+
+func cloneEnvironment(env *orchestrator.Environment) *orchestrator.Environment {
+	if env == nil {
+		return nil
+	}
+	clone := *env
+	clone.Spec = env.Spec
+	if env.Spec.Parameters != nil {
+		clone.Spec.Parameters = make(map[string]string, len(env.Spec.Parameters))
+		for key, value := range env.Spec.Parameters {
+			clone.Spec.Parameters[key] = value
+		}
+	}
+	if env.Spec.Source != nil {
+		source := *env.Spec.Source
+		if env.Spec.Source.ObservedAt != nil {
+			observedAt := *env.Spec.Source.ObservedAt
+			source.ObservedAt = &observedAt
+		}
+		clone.Spec.Source = &source
+	}
+	if env.DestroyWorkflow != nil {
+		ref := *env.DestroyWorkflow
+		clone.DestroyWorkflow = &ref
+	}
+	if env.TTLWorkflow != nil {
+		ref := *env.TTLWorkflow
+		clone.TTLWorkflow = &ref
+	}
+	if env.DeployWorkflow != nil {
+		ref := *env.DeployWorkflow
+		clone.DeployWorkflow = &ref
+	}
+	return &clone
 }
 
 func (s *ServiceStore) DeleteEnvironment(name string) error {

@@ -32,8 +32,10 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	ctx context.Context,
 	spec EnvironmentSpec,
 ) (*Environment, error) {
-
-	expiresAt := time.Now().Add(spec.TTL).Format(time.RFC3339)
+	if spec.ExpiresAt.IsZero() {
+		spec.ExpiresAt = time.Now().UTC().Add(spec.TTL)
+	}
+	expiresAt := spec.ExpiresAt.UTC().Format(time.RFC3339)
 
 	//-----------------------------------------
 	// Parameters (template-facing)
@@ -78,8 +80,9 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	//-----------------------------------------
 
 	ttlParams := map[string]string{
-		"env_name":   spec.Name,
-		"expires_at": expiresAt,
+		"env_name":     spec.Name,
+		"expires_at":   expiresAt,
+		"ttl_duration": spec.TTL.String(),
 	}
 
 	ttlLabels := NewLabelBuilder(
@@ -209,6 +212,17 @@ func (e *ArgoEnvironmentOrchestrator) GetTTLStatus(
 		return nil, err
 	}
 
+	return &w.Status, nil
+}
+
+func (e *ArgoEnvironmentOrchestrator) GetDeployStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error) {
+	if env.DeployWorkflow == nil {
+		return nil, nil
+	}
+	w, err := e.exec.GetWorkflow(ctx, env.DeployWorkflow.Name)
+	if err != nil {
+		return nil, err
+	}
 	return &w.Status, nil
 }
 
