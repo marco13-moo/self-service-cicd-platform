@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: env-deploy-template
+  namespace: argo
+spec:
+  serviceAccountName: argo-env-admin
+  entrypoint: deploy-revision
+  arguments:
+    parameters:
+      - name: env_name
+      - name: repository
+      - name: commit_sha
+      - name: project_type
+  templates:
+    - name: deploy-revision
+      inputs:
+        artifacts:
+          - name: source
+            path: /workspace
+            git:
+              repo: "{{workflow.parameters.repository}}"
+              revision: "{{workflow.parameters.commit_sha}}"
+      container:
+        image: alpine:3.22
+        workingDir: /workspace
+        command: [sh, -c]
+        args:
+          - |
+            set -eu
+            echo "Validated revision {{workflow.parameters.commit_sha}} for {{workflow.parameters.project_type}}"
+            echo "Deployment contract ready for namespace {{workflow.parameters.env_name}}"

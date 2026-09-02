@@ -15,7 +15,7 @@ func TestPersistentServiceStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(CreateServiceRequest{Name: "checkout", Owner: "platform", RepoURL: "https://github.com/acme/checkout"}, "go")
+	service := NewService(CreateServiceRequest{Name: "checkout", Owner: "platform", RepoURL: "https://github.com/acme/checkout"}, "go", scm.RepositoryIdentity{Provider: scm.ProviderGitHub, Workspace: "acme", Name: "checkout"})
 	if err := store.Put(service); err != nil {
 		t.Fatal(err)
 	}

@@ -13,9 +13,9 @@ RUN go mod download
 # Copy the rest of the control-plane source
 COPY control-plane ./
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o /control-plane ./cmd/control-plane
+# Build for the builder's target architecture. Hard-coding amd64 makes local
+# arm64 clusters depend on emulation and needlessly obscures portability bugs.
+RUN CGO_ENABLED=0 go build -o /control-plane ./cmd/control-plane
 
 # ---- runtime stage ----
 FROM gcr.io/distroless/base-debian12

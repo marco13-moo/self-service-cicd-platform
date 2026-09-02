@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-workflow-executor
+  namespace: argo
+rules:
+  # Argo's emissary executor records node completion through this resource.
+  # Keep the grant namespace-scoped; workflow pods do not need general access
+  # to Workflow objects or unrelated Kubernetes resources.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-workflow-executor
+  namespace: argo
+subjects:
+  - kind: ServiceAccount
+    name: argo-env-admin
+    namespace: argo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-workflow-executor

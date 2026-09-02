@@ -17,6 +17,7 @@ import (
 // Dependencies are injected explicitly.
 type Handlers struct {
 	store           *ServiceStore
+	commandStore    SCMCommandStore
 	envOrchestrator orchestrator.EnvironmentOrchestrator
 	argoLinks       *orchestrator.ArgoLinks
 	repositories    providers.RepositoryProvider
@@ -26,6 +27,7 @@ type Handlers struct {
 
 func NewHandlers(
 	store *ServiceStore,
+	commandStore SCMCommandStore,
 	envOrchestrator orchestrator.EnvironmentOrchestrator,
 	argoLinks *orchestrator.ArgoLinks,
 	repositories providers.RepositoryProvider,
@@ -34,6 +36,7 @@ func NewHandlers(
 ) *Handlers {
 	return &Handlers{
 		store:           store,
+		commandStore:    commandStore,
 		envOrchestrator: envOrchestrator,
 		argoLinks:       argoLinks,
 		repositories:    repositories,
@@ -85,7 +88,12 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project type detection failed", http.StatusUnprocessableEntity)
 		return
 	}
-	service := NewService(req, projectType)
+	repository, err := scm.ParseRepositoryIdentity(req.RepoURL)
+	if err != nil {
+		http.Error(w, "unsupported repository identity", http.StatusUnprocessableEntity)
+		return
+	}
+	service := NewService(req, projectType, repository)
 	if err := h.store.Put(service); err != nil {
 		h.logger.Error("failed to persist service", zap.Error(err))
 		http.Error(w, "failed to persist service", http.StatusInternalServerError)

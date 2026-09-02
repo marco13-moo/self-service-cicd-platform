@@ -39,7 +39,7 @@ func TestGitHubWebhookRejectsMissingSignature(t *testing.T) {
 
 func TestGitHubWebhookRequiresConfiguredSecret(t *testing.T) {
 	store := NewServiceStore()
-	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("")}, zap.NewNop())
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("")}, zap.NewNop())
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, webhookRequest([]byte(`{}`), "delivery-unconfigured", "ping", ""))
 	if response.Code != http.StatusServiceUnavailable {
@@ -127,7 +127,7 @@ func TestClosedPullRequestCreatesDestroyCommandWithoutHeadSHA(t *testing.T) {
 
 func newWebhookTestRouter() (http.Handler, *ServiceStore) {
 	store := NewServiceStore()
-	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
 	return router, store
 }
 

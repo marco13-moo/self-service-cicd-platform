@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
+	"os"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/config"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/executor"
@@ -24,6 +27,8 @@ type Server struct {
 	reconciler           *reconciler.SCMCommandReconciler
 	reconcileContext     context.Context
 	cancelReconciliation context.CancelFunc
+	database             *sql.DB
+	authenticators       map[scm.Provider]scm.Authenticator
 }
 
 func New(
@@ -60,7 +65,39 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("initialize state store: %w", err)
 	}
+	var commandStore api.SCMCommandStore = store
+	var database *sql.DB
+	if cfg.Database.URL != "" {
+		database, err = sql.Open("pgx", cfg.Database.URL)
+		if err != nil {
+			return nil, fmt.Errorf("open PostgreSQL command store: %w", err)
+		}
+		if err = database.PingContext(context.Background()); err != nil {
+			_ = database.Close()
+			return nil, fmt.Errorf("connect PostgreSQL command store: %w", err)
+		}
+		commandStore, err = api.NewPostgresCommandStore(context.Background(), database)
+		if err != nil {
+			_ = database.Close()
+			return nil, err
+		}
+	}
 	argoLinks := orchestrator.NewArgoLinks(cfg.Argo.UIBaseURL)
+	authenticators := map[scm.Provider]scm.Authenticator{}
+	if cfg.GitHub.AppID != "" && cfg.GitHub.PrivateKeyPath != "" {
+		key, readErr := os.ReadFile(cfg.GitHub.PrivateKeyPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("read GitHub App private key: %w", readErr)
+		}
+		auth, authErr := githubscm.NewAuthenticator(cfg.GitHub.AppID, key)
+		if authErr != nil {
+			return nil, authErr
+		}
+		authenticators[scm.ProviderGitHub] = auth
+	}
+	if cfg.Bitbucket.OAuthClientID != "" && cfg.Bitbucket.OAuthClientSecret != "" {
+		authenticators[scm.ProviderBitbucket] = bitbucketscm.NewAuthenticator(cfg.Bitbucket.OAuthClientID, cfg.Bitbucket.OAuthClientSecret)
+	}
 
 	//-----------------------------------------
 	// Router
@@ -68,6 +105,7 @@ func New(
 
 	handler := api.NewRouter(
 		store,
+		commandStore,
 		envOrchestrator, // interface satisfied
 		argoLinks,
 		providers.NewResolver(githubprovider.New(), bitbucketprovider.New()),
@@ -92,9 +130,11 @@ func New(
 
 	return &Server{
 		httpServer:           httpSrv,
-		reconciler:           reconciler.NewSCMCommandReconciler(store, envOrchestrator, cfg.Reconciler.PreviewTTL, logger),
+		reconciler:           reconciler.NewSCMCommandReconciler(store, commandStore, envOrchestrator, cfg.Reconciler.PreviewTTL, logger),
 		reconcileContext:     reconcileContext,
 		cancelReconciliation: cancelReconciliation,
+		database:             database,
+		authenticators:       authenticators,
 	}, nil
 }
 
@@ -105,5 +145,9 @@ func (s *Server) Start() error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.cancelReconciliation()
-	return s.httpServer.Shutdown(ctx)
+	err := s.httpServer.Shutdown(ctx)
+	if s.database != nil {
+		_ = s.database.Close()
+	}
+	return err
 }

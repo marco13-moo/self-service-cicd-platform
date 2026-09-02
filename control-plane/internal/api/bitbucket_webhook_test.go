@@ -13,7 +13,7 @@ import (
 
 func TestBitbucketWebhookNormalizesPullRequest(t *testing.T) {
 	store := NewServiceStore()
-	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{
 		scm.ProviderBitbucket: bitbucketscm.NewWebhookAdapter("bitbucket-secret"),
 	}, zap.NewNop())
 	body := []byte(`{"pullrequest":{"id":19,"source":{"commit":{"hash":"def456"}}},"repository":{"name":"Payments API","full_name":"acme/payments-api","uuid":"{repo-uuid}"}}`)

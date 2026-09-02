@@ -6,7 +6,9 @@ package scm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,10 +41,12 @@ const (
 type CommandStatus string
 
 const (
-	CommandPending   CommandStatus = "pending"
-	CommandLeased    CommandStatus = "leased"
-	CommandSucceeded CommandStatus = "succeeded"
-	CommandFailed    CommandStatus = "failed"
+	CommandPending    CommandStatus = "pending"
+	CommandLeased     CommandStatus = "leased"
+	CommandSucceeded  CommandStatus = "succeeded"
+	CommandFailed     CommandStatus = "failed"
+	CommandSuperseded CommandStatus = "superseded"
+	CommandDeadLetter CommandStatus = "dead_letter"
 )
 
 var (
@@ -61,6 +65,39 @@ type PullRequestEvent struct {
 	HeadSHA        string            `json:"head_sha,omitempty"`
 	Action         PullRequestAction `json:"action"`
 	ReceivedAt     time.Time         `json:"received_at"`
+}
+
+type RepositoryIdentity struct {
+	Provider  Provider `json:"provider"`
+	Workspace string   `json:"workspace"`
+	Name      string   `json:"name"`
+}
+
+func (r RepositoryIdentity) Canonical() string {
+	return string(r.Provider) + ":" + strings.ToLower(r.Workspace+"/"+r.Name)
+}
+
+func ParseRepositoryIdentity(raw string) (RepositoryIdentity, error) {
+	value := strings.TrimSpace(raw)
+	for provider, host := range map[Provider]string{ProviderGitHub: "github.com", ProviderBitbucket: "bitbucket.org"} {
+		prefix := "git@" + host + ":"
+		if strings.HasPrefix(value, prefix) {
+			value = "https://" + host + "/" + strings.TrimPrefix(value, prefix)
+		}
+		u, err := url.Parse(value)
+		if err != nil || !strings.EqualFold(u.Hostname(), host) {
+			continue
+		}
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) != 2 {
+			break
+		}
+		name := strings.TrimSuffix(parts[1], ".git")
+		if parts[0] != "" && name != "" {
+			return RepositoryIdentity{Provider: provider, Workspace: parts[0], Name: name}, nil
+		}
+	}
+	return RepositoryIdentity{}, fmt.Errorf("unsupported repository identity")
 }
 
 type LifecycleCommand struct {

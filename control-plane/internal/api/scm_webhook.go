@@ -40,7 +40,7 @@ func (h *Handlers) SCMWebhook(w http.ResponseWriter, r *http.Request) {
 	if event != nil {
 		command = scm.CommandFromEvent(*event)
 	}
-	duplicate, err := h.store.RecordSCMDelivery(provider, deliveryID, command, time.Now().UTC())
+	duplicate, err := h.commandStore.RecordSCMDelivery(provider, deliveryID, command, time.Now().UTC())
 	if err != nil {
 		h.logger.Error("failed to persist SCM delivery", zap.String("provider", string(provider)), zap.String("delivery_id", deliveryID), zap.Error(err))
 		http.Error(w, "failed to persist webhook delivery", http.StatusInternalServerError)

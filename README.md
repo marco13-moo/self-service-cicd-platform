@@ -50,6 +50,8 @@ Architectural decisions and trust boundaries are documented in
 | --- | --- | --- |
 | `GET` | `/healthz` | Process liveness |
 | `GET` | `/readyz` | Argo API connectivity and authorization |
+| `GET` | `/metrics` | Prometheus command-state metrics |
+| `GET` | `/api/v1/admin/scm/commands` | Bearer-authenticated command inspection |
 | `POST` | `/api/v1/services` | Register a service |
 | `GET` | `/api/v1/services` | List registered services |
 | `POST` | `/api/v1/environments` | Submit create and TTL workflows |
@@ -80,13 +82,24 @@ Example environment request:
 | `ARGO_UI_BASE_URL` | `http://argo-server.argo.svc` | Base URL returned by log navigation |
 | `GITHUB_TOKEN` | unset | Optional token for private repositories or higher API limits |
 | `GITHUB_WEBHOOK_SECRET` | unset | Required HMAC secret for GitHub webhook ingestion |
+| `GITHUB_APP_ID` | unset | GitHub App identifier for installation authentication |
+| `GITHUB_PRIVATE_KEY_PATH` | unset | Mounted GitHub App RSA private-key path |
 | `BITBUCKET_WEBHOOK_SECRET` | unset | Required HMAC secret for Bitbucket Cloud webhook ingestion |
 | `BITBUCKET_TOKEN` | unset | Optional bearer token for private Bitbucket repository inspection |
+| `BITBUCKET_OAUTH_CLIENT_ID` | unset | Bitbucket OAuth consumer client ID |
+| `BITBUCKET_OAUTH_CLIENT_SECRET` | unset | Bitbucket OAuth consumer secret |
 | `PREVIEW_ENVIRONMENT_TTL` | `2h` | TTL assigned by the SCM command reconciler |
+| `DATABASE_URL` | unset | PostgreSQL connection URL for distributed command leasing; file queue is the fallback |
+| `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
-The file-backed state repository is intentionally single-writer. The Kubernetes
-deployment mounts a `ReadWriteOnce` PVC. A multi-replica deployment requires a
-transactional shared datastore before horizontal scaling.
+The fallback file-backed state repository is intentionally single-writer. The
+Kubernetes deployment mounts a `ReadWriteOnce` PVC; configure PostgreSQL before
+running multiple reconcilers.
+
+When `DATABASE_URL` is configured, delivery deduplication and command leasing use
+PostgreSQL transactions with `FOR UPDATE SKIP LOCKED`, permitting multiple
+reconcilers. The lifecycle smoke harness is
+[`scripts/validate-preview-lifecycle.sh`](scripts/validate-preview-lifecycle.sh).
 
 ## Development
 
@@ -110,3 +123,5 @@ The webhook security and idempotency boundary is specified in
 [`ADR 0008`](docs/adr/0008-authenticated-github-webhook-ingestion.md).
 The provider-neutral domain, adapter, authentication, and reconciliation model is
 specified in [`ADR 0009`](docs/adr/0009-provider-neutral-source-control-boundary.md).
+Revision convergence and failure semantics are specified in
+[`ADR 0010`](docs/adr/0010-revision-aware-preview-reconciliation.md).

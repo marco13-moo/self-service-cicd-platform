@@ -2,9 +2,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: env-destroy-template
+  namespace: argo
 spec:
   entrypoint: delete-namespace
-  serviceAccountName: env-manager
+  serviceAccountName: argo-env-admin
   arguments:
     parameters:
       - name: env_name

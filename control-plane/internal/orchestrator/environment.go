@@ -18,6 +18,17 @@ type EnvironmentSpec struct {
 	Service    string            `json:"service"`
 	TTL        time.Duration     `json:"ttl"`
 	Parameters map[string]string `json:"parameters,omitempty"`
+	Source     *SourceRevision   `json:"source,omitempty"`
+}
+
+type SourceRevision struct {
+	Provider    string `json:"provider"`
+	Repository  string `json:"repository"`
+	CloneURL    string `json:"clone_url,omitempty"`
+	PullRequest int    `json:"pull_request"`
+	DesiredSHA  string `json:"desired_sha"`
+	DeployedSHA string `json:"deployed_sha,omitempty"`
+	Generation  int64  `json:"generation"`
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.
@@ -45,6 +56,7 @@ type Environment struct {
 	CreateWorkflow  WorkflowReference  `json:"create_workflow"`
 	DestroyWorkflow *WorkflowReference `json:"destroy_workflow,omitempty"`
 	TTLWorkflow     *WorkflowReference `json:"ttl_workflow,omitempty"`
+	DeployWorkflow  *WorkflowReference `json:"deploy_workflow,omitempty"`
 }
 
 //
@@ -75,6 +87,7 @@ type EnvironmentOrchestrator interface {
 	// Destroy submits intent to destroy an environment.
 	//Destroy(ctx context.Context, name string) (*WorkflowReference, error)
 	Destroy(ctx context.Context, name string, service string) (*WorkflowReference, error)
+	Deploy(ctx context.Context, env *Environment, projectType string) (*WorkflowReference, error)
 
 	// GetCreateStatus returns the current status of the create workflow.
 	//GetCreateStatus(ctx context.Context, env *Environment) (*WorkflowStatusView, error)

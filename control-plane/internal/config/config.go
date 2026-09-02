@@ -15,6 +15,7 @@ type Config struct {
 	GitHub     GitHubConfig
 	Bitbucket  BitbucketConfig
 	Reconciler ReconcilerConfig
+	Database   DatabaseConfig
 }
 
 type HTTPConfig struct {
@@ -36,9 +37,12 @@ type ArgoConfig struct {
 }
 
 type GitHubConfig struct {
-	WebhookSecret string
+	WebhookSecret  string
+	AppID          string
+	PrivateKeyPath string
 }
 
-type BitbucketConfig struct{ WebhookSecret string }
+type BitbucketConfig struct{ WebhookSecret, OAuthClientID, OAuthClientSecret string }
 
 type ReconcilerConfig struct{ PreviewTTL time.Duration }
+type DatabaseConfig struct{ URL string }

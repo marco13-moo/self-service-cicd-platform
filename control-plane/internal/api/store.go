@@ -80,6 +80,14 @@ func NewPersistentServiceStore(path string) (*ServiceStore, error) {
 	}
 	if state.Services != nil {
 		store.services = state.Services
+		for name, service := range store.services {
+			if service.Repository.Provider == "" {
+				if identity, parseErr := scm.ParseRepositoryIdentity(service.RepoURL); parseErr == nil {
+					service.Repository = identity
+					store.services[name] = service
+				}
+			}
+		}
 	}
 	if state.Environments != nil {
 		store.environments = state.Environments
@@ -136,6 +144,9 @@ func (s *ServiceStore) FindServiceByRepository(repository string) (Service, erro
 	defer s.mu.RUnlock()
 	wanted := strings.ToLower(strings.TrimSuffix(strings.Trim(repository, "/"), ".git"))
 	for _, service := range s.services {
+		if service.Repository.Provider != "" && strings.EqualFold(service.Repository.Workspace+"/"+service.Repository.Name, wanted) {
+			return service, nil
+		}
 		candidate := strings.ToLower(strings.TrimSuffix(strings.Trim(service.RepoURL, "/"), ".git"))
 		if candidate == wanted || strings.HasSuffix(candidate, "/"+wanted) || strings.HasSuffix(candidate, ":"+wanted) {
 			return service, nil
@@ -199,7 +210,8 @@ func (s *ServiceStore) RecordSCMDelivery(provider scm.Provider, deliveryID strin
 	for id, timestamp := range s.scmDeliveries {
 		previousDeliveries[id] = timestamp
 	}
-	previousCommandCount := len(s.scmCommands)
+	previousCommands := make([]scm.LifecycleCommand, len(s.scmCommands))
+	copy(previousCommands, s.scmCommands)
 
 	// GitHub delivery IDs are retained long enough to absorb realistic retries
 	// without allowing the single-writer state file to grow indefinitely.
@@ -211,11 +223,17 @@ func (s *ServiceStore) RecordSCMDelivery(provider scm.Provider, deliveryID strin
 	}
 	s.scmDeliveries[key] = receivedAt
 	if command != nil {
+		for index := range s.scmCommands {
+			existing := &s.scmCommands[index]
+			if existing.Environment == command.Environment && (existing.Status == scm.CommandPending || existing.Status == scm.CommandFailed) {
+				existing.Status = scm.CommandSuperseded
+			}
+		}
 		s.scmCommands = append(s.scmCommands, *command)
 	}
 	if err := s.persistLocked(); err != nil {
 		s.scmDeliveries = previousDeliveries
-		s.scmCommands = s.scmCommands[:previousCommandCount]
+		s.scmCommands = previousCommands
 		return false, err
 	}
 	return false, nil
@@ -265,9 +283,14 @@ func (s *ServiceStore) CompleteSCMCommand(id string, processingErr error, now ti
 		if processingErr == nil {
 			command.Status, command.LastError = scm.CommandSucceeded, ""
 		} else {
-			command.Status, command.LastError = scm.CommandFailed, processingErr.Error()
-			backoff := time.Duration(1<<min(command.Attempts, 6)) * time.Second
-			command.AvailableAt = now.Add(backoff)
+			command.LastError = processingErr.Error()
+			if command.Attempts >= 5 {
+				command.Status = scm.CommandDeadLetter
+			} else {
+				command.Status = scm.CommandFailed
+				backoff := time.Duration(1<<min(command.Attempts, 6)) * time.Second
+				command.AvailableAt = now.Add(backoff)
+			}
 		}
 		if err := s.persistLocked(); err != nil {
 			*command = previous

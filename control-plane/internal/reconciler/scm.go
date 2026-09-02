@@ -14,14 +14,15 @@ import (
 
 type SCMCommandReconciler struct {
 	store         *api.ServiceStore
+	commands      api.SCMCommandStore
 	orchestrator  orchestrator.EnvironmentOrchestrator
 	previewTTL    time.Duration
 	leaseDuration time.Duration
 	logger        *zap.Logger
 }
 
-func NewSCMCommandReconciler(store *api.ServiceStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, logger *zap.Logger) *SCMCommandReconciler {
-	return &SCMCommandReconciler{store: store, orchestrator: envOrchestrator, previewTTL: previewTTL, leaseDuration: 30 * time.Second, logger: logger}
+func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, logger *zap.Logger) *SCMCommandReconciler {
+	return &SCMCommandReconciler{store: store, commands: commands, orchestrator: envOrchestrator, previewTTL: previewTTL, leaseDuration: 30 * time.Second, logger: logger}
 }
 
 func (r *SCMCommandReconciler) Run(ctx context.Context) {
@@ -40,12 +41,12 @@ func (r *SCMCommandReconciler) Run(ctx context.Context) {
 }
 
 func (r *SCMCommandReconciler) ProcessOne(ctx context.Context, now time.Time) (bool, error) {
-	command, err := r.store.LeaseSCMCommand(now, r.leaseDuration)
+	command, err := r.commands.LeaseSCMCommand(now, r.leaseDuration)
 	if err != nil {
 		return false, err
 	}
 	processingErr := r.reconcile(ctx, command)
-	if completeErr := r.store.CompleteSCMCommand(command.ID, processingErr, now); completeErr != nil {
+	if completeErr := r.commands.CompleteSCMCommand(command.ID, processingErr, now); completeErr != nil {
 		return true, fmt.Errorf("complete SCM command: %w", completeErr)
 	}
 	return true, processingErr
@@ -58,18 +59,36 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 	}
 	switch command.Type {
 	case scm.EnsurePreviewEnvironment:
-		if _, err := r.store.GetEnvironment(command.Environment); err == nil {
-			return nil
-		} else if !errors.Is(err, api.ErrEnvironmentNotFound) {
+		env, err := r.store.GetEnvironment(command.Environment)
+		if err != nil && !errors.Is(err, api.ErrEnvironmentNotFound) {
 			return err
 		}
-		env, err := r.orchestrator.Create(ctx, orchestrator.EnvironmentSpec{
-			Name: command.Environment, Service: service.Name, TTL: r.previewTTL,
-			Parameters: map[string]string{"scm_provider": string(command.Provider), "repository": command.Repository, "pull_request": fmt.Sprint(command.PullRequest), "head_sha": command.HeadSHA},
-		})
+		if errors.Is(err, api.ErrEnvironmentNotFound) {
+			env, err = r.orchestrator.Create(ctx, orchestrator.EnvironmentSpec{Name: command.Environment, Service: service.Name, TTL: r.previewTTL})
+			if err != nil {
+				return err
+			}
+			// Persist provisioning identity before deployment. If deployment
+			// submission fails, retrying must not submit another create workflow.
+			if err := r.store.PutEnvironment(env); err != nil {
+				return err
+			}
+		}
+		if env.Spec.Source != nil && env.Spec.Source.DesiredSHA == command.HeadSHA && env.DeployWorkflow != nil {
+			return nil
+		}
+		generation := int64(1)
+		deployed := ""
+		if env.Spec.Source != nil {
+			generation = env.Spec.Source.Generation + 1
+			deployed = env.Spec.Source.DeployedSHA
+		}
+		env.Spec.Source = &orchestrator.SourceRevision{Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL, PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed, Generation: generation}
+		ref, err := r.orchestrator.Deploy(ctx, env, service.ProjectType)
 		if err != nil {
 			return err
 		}
+		env.DeployWorkflow = ref
 		return r.store.PutEnvironment(env)
 	case scm.DestroyPreviewEnvironment:
 		env, err := r.store.GetEnvironment(command.Environment)

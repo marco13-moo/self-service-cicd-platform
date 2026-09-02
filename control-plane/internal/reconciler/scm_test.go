@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type fakeOrchestrator struct{ creates, destroys int }
+type fakeOrchestrator struct{ creates, deploys, destroys int }
 
 func (f *fakeOrchestrator) Create(_ context.Context, spec orchestrator.EnvironmentSpec) (*orchestrator.Environment, error) {
 	f.creates++
@@ -21,6 +21,10 @@ func (f *fakeOrchestrator) Create(_ context.Context, spec orchestrator.Environme
 func (f *fakeOrchestrator) Destroy(_ context.Context, name, _ string) (*orchestrator.WorkflowReference, error) {
 	f.destroys++
 	return &orchestrator.WorkflowReference{Name: "destroy-" + name, Namespace: "argo"}, nil
+}
+func (f *fakeOrchestrator) Deploy(_ context.Context, _ *orchestrator.Environment, _ string) (*orchestrator.WorkflowReference, error) {
+	f.deploys++
+	return &orchestrator.WorkflowReference{Name: "deploy", Namespace: "argo"}, nil
 }
 func (*fakeOrchestrator) GetCreateStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
 	return nil, nil
@@ -41,12 +45,36 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeOrchestrator{}
-	reconciler := NewSCMCommandReconciler(store, fake, time.Hour, zap.NewNop())
+	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, zap.NewNop())
 	if processed, err := reconciler.ProcessOne(context.Background(), now); err != nil || !processed {
 		t.Fatalf("ensure: processed=%v err=%v", processed, err)
 	}
 	if fake.creates != 1 {
 		t.Fatalf("expected one create, got %d", fake.creates)
+	}
+	if fake.deploys != 1 {
+		t.Fatalf("expected one deployment, got %d", fake.deploys)
+	}
+	env, err := store.GetEnvironment("checkout-pr-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Spec.Source.Repository != "acme/checkout" || env.Spec.Source.CloneURL != "https://bitbucket.org/acme/checkout" {
+		t.Fatalf("unexpected source identity: %#v", env.Spec.Source)
+	}
+	update := ensure
+	update.ID = "bitbucket:update"
+	update.DeliveryID = "update"
+	update.HeadSHA = "def"
+	update.Status = scm.CommandPending
+	if _, err := store.RecordSCMDelivery(scm.ProviderBitbucket, "update", &update, now); err != nil {
+		t.Fatal(err)
+	}
+	if processed, err := reconciler.ProcessOne(context.Background(), now); err != nil || !processed {
+		t.Fatalf("update: processed=%v err=%v", processed, err)
+	}
+	if fake.creates != 1 || fake.deploys != 2 {
+		t.Fatalf("update should redeploy without reprovisioning: creates=%d deploys=%d", fake.creates, fake.deploys)
 	}
 
 	closeCommand := scm.LifecycleCommand{ID: "bitbucket:close", Provider: scm.ProviderBitbucket, DeliveryID: "close", Type: scm.DestroyPreviewEnvironment, Repository: "acme/checkout", PullRequest: 3, Environment: "checkout-pr-3", Status: scm.CommandPending, AvailableAt: now, CreatedAt: now}

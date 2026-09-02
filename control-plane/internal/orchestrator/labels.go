@@ -41,6 +41,7 @@ const (
 	WorkflowTypeEnvCreate  = "environment-create"
 	WorkflowTypeEnvDestroy = "environment-destroy"
 	WorkflowTypeEnvTTL     = "environment-ttl"
+	WorkflowTypeEnvDeploy  = "environment-deploy"
 )
 
 //

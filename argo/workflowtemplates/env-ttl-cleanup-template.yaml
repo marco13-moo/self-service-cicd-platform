@@ -2,8 +2,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: env-ttl-cleanup-template
+  namespace: argo
 spec:
   entrypoint: cleanup
+  serviceAccountName: argo-env-admin
   arguments:
     parameters:
       - name: env_name

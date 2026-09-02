@@ -152,6 +152,26 @@ func (e *ArgoEnvironmentOrchestrator) Destroy(
 	return &ref, nil
 }
 
+func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environment, projectType string) (*WorkflowReference, error) {
+	if env.Spec.Source == nil {
+		return nil, fmt.Errorf("environment source revision is required")
+	}
+	// Repository is the provider-neutral identity used for matching webhook
+	// events. Argo requires the transport-specific clone URL instead.
+	cloneURL := env.Spec.Source.CloneURL
+	if cloneURL == "" {
+		cloneURL = env.Spec.Source.Repository
+	}
+	params := map[string]string{"env_name": env.Spec.Name, "repository": cloneURL, "commit_sha": env.Spec.Source.DesiredSHA, "project_type": projectType}
+	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
+	workflow, err := e.exec.SubmitFromTemplate(ctx, "env-deploy-template", "env-deploy-", params, labels)
+	if err != nil {
+		return nil, fmt.Errorf("submit environment deployment workflow: %w", err)
+	}
+	ref := toWorkflowReference(workflow)
+	return &ref, nil
+}
+
 //
 // ---- Read-only execution observability ----
 //

@@ -28,6 +28,9 @@ func (f *fakeEnvironmentOrchestrator) Create(_ context.Context, spec orchestrato
 func (f *fakeEnvironmentOrchestrator) Destroy(_ context.Context, name, _ string) (*orchestrator.WorkflowReference, error) {
 	return &orchestrator.WorkflowReference{Name: "destroy-" + name, Namespace: "argo"}, nil
 }
+func (f *fakeEnvironmentOrchestrator) Deploy(context.Context, *orchestrator.Environment, string) (*orchestrator.WorkflowReference, error) {
+	return &orchestrator.WorkflowReference{Name: "deploy-1", Namespace: "argo"}, nil
+}
 func (f *fakeEnvironmentOrchestrator) GetCreateStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
 	return &wf.WorkflowStatus{Phase: wf.WorkflowRunning}, nil
 }
@@ -38,7 +41,7 @@ func (f *fakeEnvironmentOrchestrator) Ready(context.Context) error { return f.re
 
 func TestEnvironmentLifecycleRoutes(t *testing.T) {
 	store := NewServiceStore()
-	router := NewRouter(store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
 
 	create := httptest.NewRequest(http.MethodPost, "/api/v1/environments", bytes.NewBufferString(`{"name":"pr-42","service":"checkout","ttl":"1h"}`))
 	created := httptest.NewRecorder()
@@ -71,7 +74,8 @@ func TestEnvironmentLifecycleRoutes(t *testing.T) {
 
 func TestReadinessReflectsExecutionPlane(t *testing.T) {
 	orchestratorFake := &fakeEnvironmentOrchestrator{readyErr: errors.New("unavailable")}
-	router := NewRouter(NewServiceStore(), orchestratorFake, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
+	store := NewServiceStore()
+	router := NewRouter(store, store, orchestratorFake, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if response.Code != http.StatusServiceUnavailable {
