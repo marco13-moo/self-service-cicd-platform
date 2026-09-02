@@ -21,6 +21,10 @@ spec:
       - name: builder_image
       - name: registry_secret_name
       - name: registry_insecure
+      - name: scanner_image
+      - name: vulnerability_severities
+      - name: ignore_unfixed
+      - name: target_platform
   volumes:
     - name: buildkit-state
       emptyDir: {}
@@ -34,9 +38,20 @@ spec:
         tasks:
           - name: build
             template: build-image
-          - name: deploy
+          - name: vulnerability-policy
             dependencies: [build]
+            template: vulnerability-policy
+            arguments:
+              parameters:
+                - name: image_digest
+                  value: "{{tasks.build.outputs.parameters.image-digest}}"
+          - name: deploy
+            dependencies: [vulnerability-policy]
             template: deploy-workload
+            arguments:
+              parameters:
+                - name: image_digest
+                  value: "{{tasks.build.outputs.parameters.image-digest}}"
     - name: build-image
       inputs:
         artifacts:
@@ -48,19 +63,23 @@ spec:
       container:
         image: "{{workflow.parameters.builder_image}}"
         workingDir: /workspace
-        command: [buildctl-daemonless.sh]
+        command: [sh, -c]
         args:
-          - build
-          - --frontend
-          - dockerfile.v0
-          - --local
-          - context=/workspace
-          - --local
-          - dockerfile=/workspace
-          - --opt
-          - "filename={{workflow.parameters.dockerfile}}"
-          - --output
-          - "type=image,name={{workflow.parameters.image_ref}},push=true,registry.insecure={{workflow.parameters.registry_insecure}}"
+          - |
+            set -eu
+            buildctl-daemonless.sh build \
+              --frontend dockerfile.v0 \
+              --local context=/workspace \
+              --local dockerfile=/workspace \
+              --opt 'filename={{workflow.parameters.dockerfile}}' \
+              --opt 'platform={{workflow.parameters.target_platform}}' \
+              --output 'type=image,name={{workflow.parameters.image_ref}},push=true,registry.insecure={{workflow.parameters.registry_insecure}}' \
+              --metadata-file /tmp/build-metadata.json \
+              --opt attest:sbom= \
+              --opt attest:provenance=mode=max
+            digest=$(sed -n 's/^[[:space:]]*"containerimage.digest":[[:space:]]*"\(sha256:[a-f0-9]\{64\}\)".*/\1/p' /tmp/build-metadata.json)
+            test -n "$digest"
+            printf '%s' "$digest" > /tmp/image-digest
         env:
           - name: BUILDKITD_FLAGS
             value: --oci-worker-no-process-sandbox
@@ -79,14 +98,61 @@ spec:
           - name: registry-credentials
             mountPath: /home/user/.docker
             readOnly: true
+      outputs:
+        parameters:
+          - name: image-digest
+            valueFrom:
+              path: /tmp/image-digest
+            globalName: image-digest
+
+    - name: vulnerability-policy
+      inputs:
+        parameters:
+          - name: image_digest
+      container:
+        image: "{{workflow.parameters.scanner_image}}"
+        command: [sh, -c]
+        args:
+          - |
+            set -eu
+            tag='{{workflow.parameters.image_ref}}'
+            digest='{{inputs.parameters.image_digest}}'
+            image="${tag%:*}@${digest}"
+            insecure=""
+            ignore_unfixed=""
+            if [ '{{workflow.parameters.registry_insecure}}' = true ]; then
+              insecure="--insecure"
+            fi
+            if [ '{{workflow.parameters.ignore_unfixed}}' = true ]; then
+              ignore_unfixed="--ignore-unfixed"
+            fi
+            # Generate a secondary CycloneDX inventory for cross-tool
+            # validation; the SPDX BuildKit attestation remains registry-resident.
+            trivy image $insecure --platform '{{workflow.parameters.target_platform}}' --format cyclonedx --output /tmp/sbom.cdx.json "$image"
+            trivy image $insecure $ignore_unfixed --platform '{{workflow.parameters.target_platform}}' --scanners vuln --exit-code 1 \
+              --severity '{{workflow.parameters.vulnerability_severities}}' "$image"
+            echo "Vulnerability policy passed for ${image}"
+        env:
+          - name: DOCKER_CONFIG
+            value: /root/.docker
+        volumeMounts:
+          - name: registry-credentials
+            mountPath: /root/.docker
+            readOnly: true
+
     - name: deploy-workload
+      inputs:
+        parameters:
+          - name: image_digest
       script:
         image: bitnami/kubectl@sha256:e0fcb25c485a8ad0665d0dd4b4a67cefb6baee32b0e3b19f54f1b468c49c1ed5
         command: [sh]
         source: |
           set -eu
           namespace='{{workflow.parameters.env_name}}'
-          image='{{workflow.parameters.image_ref}}'
+          tag='{{workflow.parameters.image_ref}}'
+          digest='{{inputs.parameters.image_digest}}'
+          image="${tag%:*}@${digest}"
           port='{{workflow.parameters.container_port}}'
           host='{{workflow.parameters.preview_host}}'
           kubectl -n "$namespace" apply -f - <<EOF

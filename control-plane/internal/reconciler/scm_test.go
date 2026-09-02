@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,8 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	fake := &fakeOrchestrator{}
 	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, PreviewRuntimeConfig{
 		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", RegistrySecretName: "registry-credentials",
+		ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", IgnoreUnfixed: true,
+		TargetPlatform: "linux/amd64",
 	}, zap.NewNop())
 	if processed, err := reconciler.ProcessOne(context.Background(), now); err != nil || !processed {
 		t.Fatalf("ensure: processed=%v err=%v", processed, err)
@@ -75,12 +78,13 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	if env.Spec.Source.Repository != "acme/checkout" || env.Spec.Source.CloneURL != "https://bitbucket.org/acme/checkout" {
 		t.Fatalf("unexpected source identity: %#v", env.Spec.Source)
 	}
-	fake.deployStatus = &wf.WorkflowStatus{Phase: wf.WorkflowSucceeded}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	fake.deployStatus = &wf.WorkflowStatus{Phase: wf.WorkflowSucceeded, Outputs: &wf.Outputs{Parameters: []wf.Parameter{{Name: "image-digest", Value: wf.AnyStringPtr(digest)}}}}
 	if err := reconciler.ObserveDeployments(context.Background(), now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout:abc1234" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
 		t.Fatalf("successful workflow was not promoted: %#v", env.Spec.Source)
 	}
 	update := ensure
@@ -106,7 +110,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
 		t.Fatalf("failed workflow must not promote its desired SHA: %#v", env.Spec.Source)
 	}
 
@@ -125,5 +129,27 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		if command.Status != scm.CommandSucceeded {
 			t.Fatalf("command not completed: %#v", command)
 		}
+	}
+}
+
+func TestDeploymentObservationFailsClosedWithoutDigest(t *testing.T) {
+	store := api.NewServiceStore()
+	env := &orchestrator.Environment{
+		Spec: orchestrator.EnvironmentSpec{Name: "checkout-pr-9", Source: &orchestrator.SourceRevision{
+			DesiredSHA: "abc1234", DesiredImage: "registry.test/checkout:abc1234", Generation: 1, DeploymentPhase: "Running",
+		}},
+		DeployWorkflow: &orchestrator.WorkflowReference{Name: "deploy-without-digest", Namespace: "argo"},
+	}
+	if err := store.PutEnvironment(env); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeOrchestrator{deployStatus: &wf.WorkflowStatus{Phase: wf.WorkflowSucceeded}}
+	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, PreviewRuntimeConfig{}, zap.NewNop())
+	if err := reconciler.ObserveDeployments(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	observed, _ := store.GetEnvironment("checkout-pr-9")
+	if observed.Spec.Source.DeploymentPhase != "Error" || observed.Spec.Source.DeployedSHA != "" || observed.Spec.Source.DeployedImage != "" {
+		t.Fatalf("digestless success escaped the fail-closed boundary: %#v", observed.Spec.Source)
 	}
 }

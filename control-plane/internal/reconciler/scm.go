@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
@@ -17,6 +18,8 @@ import (
 var (
 	imageComponentSanitizer = regexp.MustCompile(`[^a-z0-9._-]+`)
 	commitSHA               = regexp.MustCompile(`^[a-fA-F0-9]{7,64}$`)
+	imageDigest             = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	vulnerabilitySeverities = regexp.MustCompile(`^(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL)(,(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL))*$`)
 )
 
 type SCMCommandReconciler struct {
@@ -30,12 +33,16 @@ type SCMCommandReconciler struct {
 }
 
 type PreviewRuntimeConfig struct {
-	ImageRepository    string
-	BaseDomain         string
-	URLScheme          string
-	BuilderImage       string
-	RegistrySecretName string
-	RegistryInsecure   bool
+	ImageRepository         string
+	BaseDomain              string
+	URLScheme               string
+	BuilderImage            string
+	RegistrySecretName      string
+	RegistryInsecure        bool
+	ScannerImage            string
+	VulnerabilitySeverities string
+	IgnoreUnfixed           bool
+	TargetPlatform          string
 }
 
 func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, preview PreviewRuntimeConfig, logger *zap.Logger) *SCMCommandReconciler {
@@ -78,7 +85,18 @@ func (r *SCMCommandReconciler) ObserveDeployments(ctx context.Context, observedA
 		if status == nil || status.Phase == "" {
 			continue
 		}
-		if _, err := r.store.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, string(status.Phase), status.Message, observedAt); err != nil {
+		phase, message := string(status.Phase), status.Message
+		evidence := api.DeploymentEvidence{}
+		if status.Phase == wf.WorkflowSucceeded {
+			digest := workflowOutput(status, "image-digest")
+			if !imageDigest.MatchString(digest) {
+				phase, message = "Error", "deployment workflow succeeded without a valid image digest"
+			} else {
+				immutableImage := digestReference(env.Spec.Source.DesiredImage, digest)
+				evidence = api.DeploymentEvidence{ImageDigest: digest, DeployedImage: immutableImage, SBOMReference: immutableImage, ProvenanceReference: immutableImage, VulnerabilityPolicy: "passed"}
+			}
+		}
+		if _, err := r.store.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, phase, message, observedAt, evidence); err != nil {
 			observationErrors = append(observationErrors, fmt.Errorf("persist deployment observation for %s: %w", env.Spec.Name, err))
 		}
 	}
@@ -143,15 +161,22 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 		}
 		deployedImage := ""
 		previewURL := ""
+		imageDigestValue, sbomReference, provenanceReference, vulnerabilityPolicy := "", "", "", ""
 		if env.Spec.Source != nil {
 			deployedImage = env.Spec.Source.DeployedImage
 			previewURL = env.Spec.Source.PreviewURL
+			imageDigestValue = env.Spec.Source.ImageDigest
+			sbomReference = env.Spec.Source.SBOMReference
+			provenanceReference = env.Spec.Source.ProvenanceReference
+			vulnerabilityPolicy = env.Spec.Source.VulnerabilityPolicy
 		}
 		env.Spec.Source = &orchestrator.SourceRevision{
 			Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL,
 			PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed,
 			Generation: generation, DeploymentPhase: "Pending", DesiredImage: deployment.ImageRef,
 			DeployedImage: deployedImage, DesiredPreviewURL: deployment.PreviewURL, PreviewURL: previewURL,
+			ImageDigest: imageDigestValue, SBOMReference: sbomReference, ProvenanceReference: provenanceReference,
+			VulnerabilityPolicy: vulnerabilityPolicy,
 		}
 		ref, err := r.orchestrator.Deploy(ctx, env, deployment)
 		if err != nil {
@@ -189,6 +214,17 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 	if strings.TrimSpace(r.preview.BuilderImage) == "" {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_BUILDER_IMAGE is required for preview builds")
 	}
+	if strings.TrimSpace(r.preview.ScannerImage) == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_SCANNER_IMAGE is required for preview policy evaluation")
+	}
+	severities := strings.ToUpper(strings.TrimSpace(r.preview.VulnerabilitySeverities))
+	if !vulnerabilitySeverities.MatchString(severities) {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_VULNERABILITY_SEVERITIES contains an unsupported severity set")
+	}
+	platform := strings.TrimSpace(r.preview.TargetPlatform)
+	if platform != "linux/amd64" && platform != "linux/arm64" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_TARGET_PLATFORM must be linux/amd64 or linux/arm64")
+	}
 	port := service.Deployment.ContainerPort
 	if port == 0 {
 		port = 8080
@@ -225,5 +261,28 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		Dockerfile: dockerfile, PreviewHost: host, PreviewURL: previewURL,
 		BuilderImage: r.preview.BuilderImage, RegistrySecretName: r.preview.RegistrySecretName,
 		RegistryInsecure: r.preview.RegistryInsecure,
+		ScannerImage:     r.preview.ScannerImage, VulnerabilitySeverities: severities,
+		IgnoreUnfixed:  r.preview.IgnoreUnfixed,
+		TargetPlatform: platform,
 	}, nil
+}
+
+func workflowOutput(status *wf.WorkflowStatus, name string) string {
+	if status == nil || status.Outputs == nil {
+		return ""
+	}
+	for _, parameter := range status.Outputs.Parameters {
+		if parameter.Name == name && parameter.Value != nil {
+			return parameter.Value.String()
+		}
+	}
+	return ""
+}
+
+func digestReference(tag, digest string) string {
+	lastSlash, lastColon := strings.LastIndex(tag, "/"), strings.LastIndex(tag, ":")
+	if lastColon > lastSlash {
+		tag = tag[:lastColon]
+	}
+	return tag + "@" + digest
 }

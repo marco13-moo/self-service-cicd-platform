@@ -171,8 +171,12 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 		"image_ref": deployment.ImageRef, "container_port": fmt.Sprintf("%d", deployment.ContainerPort),
 		"dockerfile": deployment.Dockerfile, "preview_host": deployment.PreviewHost,
 		"preview_url": deployment.PreviewURL, "builder_image": deployment.BuilderImage,
-		"registry_secret_name": deployment.RegistrySecretName,
-		"registry_insecure":    fmt.Sprintf("%t", deployment.RegistryInsecure),
+		"registry_secret_name":     deployment.RegistrySecretName,
+		"registry_insecure":        fmt.Sprintf("%t", deployment.RegistryInsecure),
+		"scanner_image":            deployment.ScannerImage,
+		"vulnerability_severities": deployment.VulnerabilitySeverities,
+		"ignore_unfixed":           fmt.Sprintf("%t", deployment.IgnoreUnfixed),
+		"target_platform":          deployment.TargetPlatform,
 	}
 	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
 	workflow, err := e.exec.SubmitFromTemplate(ctx, "env-deploy-template", "env-deploy-", params, labels)

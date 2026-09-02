@@ -25,8 +25,11 @@ Phase 8 now includes provider-neutral webhook ingestion, durable commands,
 authentication boundaries, and preview-environment reconciliation. Exact source
 revisions are built into OCI images by rootless BuildKit, deployed into their
 preview namespaces, and exposed through either Ingress or cluster-local Service
-DNS. PostgreSQL-backed distributed command leasing, durable TTL enforcement, and
-generation-safe publication of deployed revisions, images, and URLs are implemented.
+DNS. Images carry OCI-native SPDX SBOM and maximal provenance attestations,
+pass a configurable Trivy vulnerability gate, and are deployed exclusively by
+registry-returned digest. PostgreSQL-backed distributed command leasing, durable
+TTL enforcement, and generation-safe publication of deployed revisions, images,
+attestation subjects, and URLs are implemented.
 
 ## Architecture
 
@@ -115,6 +118,10 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_REGISTRY_INSECURE` | `false` | Permit HTTP/insecure registry transport for local clusters only |
 | `PREVIEW_BASE_DOMAIN` | unset | Wildcard DNS suffix; when unset, publish cluster-local Service URLs |
 | `PREVIEW_URL_SCHEME` | `https` | Scheme used for externally routed preview URLs |
+| `PREVIEW_SCANNER_IMAGE` | `aquasec/trivy:0.74.0` | Trivy image used for inventory and vulnerability evaluation |
+| `PREVIEW_VULNERABILITY_SEVERITIES` | `CRITICAL` | Comma-separated severities that block deployment |
+| `PREVIEW_VULNERABILITY_IGNORE_UNFIXED` | `true` | Ignore blocking findings that have no available fix |
+| `PREVIEW_TARGET_PLATFORM` | `linux/amd64` | OCI build and scan platform; use `linux/arm64` for ARM clusters |
 | `DATABASE_URL` | unset | PostgreSQL connection URL for distributed command leasing; file queue is the fallback |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
@@ -155,3 +162,5 @@ TTL enforcement and generation-safe deployment observation are specified in
 [`ADR 0011`](docs/adr/0011-ttl-enforcement-and-deployment-observation.md).
 OCI construction, namespace deployment, and preview routing are specified in
 [`ADR 0012`](docs/adr/0012-oci-preview-build-deployment-and-routing.md).
+Digest-pinned deployment, OCI attestations, and vulnerability admission are
+specified in [`ADR 0013`](docs/adr/0013-digest-pinned-artifacts-attestations-and-vulnerability-policy.md).

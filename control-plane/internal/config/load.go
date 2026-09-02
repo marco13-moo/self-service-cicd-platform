@@ -28,12 +28,16 @@ func Load() *Config {
 		Reconciler: ReconcilerConfig{PreviewTTL: getDurationEnv("PREVIEW_ENVIRONMENT_TTL", 2*time.Hour)},
 		Database:   DatabaseConfig{URL: os.Getenv("DATABASE_URL")},
 		Preview: PreviewConfig{
-			ImageRepository:    os.Getenv("PREVIEW_IMAGE_REPOSITORY"),
-			BaseDomain:         os.Getenv("PREVIEW_BASE_DOMAIN"),
-			URLScheme:          getEnv("PREVIEW_URL_SCHEME", "https"),
-			BuilderImage:       getEnv("PREVIEW_BUILDER_IMAGE", "moby/buildkit:v0.33.0-rootless"),
-			RegistrySecretName: getEnv("PREVIEW_REGISTRY_SECRET", "registry-credentials"),
-			RegistryInsecure:   getEnvBool("PREVIEW_REGISTRY_INSECURE", false),
+			ImageRepository:         os.Getenv("PREVIEW_IMAGE_REPOSITORY"),
+			BaseDomain:              os.Getenv("PREVIEW_BASE_DOMAIN"),
+			URLScheme:               getEnv("PREVIEW_URL_SCHEME", "https"),
+			BuilderImage:            getEnv("PREVIEW_BUILDER_IMAGE", "moby/buildkit:v0.33.0-rootless"),
+			RegistrySecretName:      getEnv("PREVIEW_REGISTRY_SECRET", "registry-credentials"),
+			RegistryInsecure:        getEnvBool("PREVIEW_REGISTRY_INSECURE", false),
+			ScannerImage:            getEnv("PREVIEW_SCANNER_IMAGE", "aquasec/trivy:0.74.0"),
+			VulnerabilitySeverities: getEnv("PREVIEW_VULNERABILITY_SEVERITIES", "CRITICAL"),
+			IgnoreUnfixed:           getEnvBool("PREVIEW_VULNERABILITY_IGNORE_UNFIXED", true),
+			TargetPlatform:          getEnv("PREVIEW_TARGET_PLATFORM", "linux/amd64"),
 		},
 	}
 }

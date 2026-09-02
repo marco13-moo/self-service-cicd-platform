@@ -12,6 +12,7 @@ SCM_PULL_REQUEST="${SCM_PULL_REQUEST:-9001}"
 
 command -v curl >/dev/null
 command -v kubectl >/dev/null
+command -v jq >/dev/null
 
 delivery="smoke-$(date +%s)"
 payload="{\"action\":\"opened\",\"number\":${SCM_PULL_REQUEST},\"installation\":{\"id\":1},\"repository\":{\"name\":\"${SCM_REPOSITORY_NAME}\",\"full_name\":\"${SCM_REPOSITORY}\"},\"pull_request\":{\"head\":{\"sha\":\"${SCM_COMMIT_SHA}\"}}}"
@@ -54,4 +55,24 @@ kubectl wait --for=jsonpath='{.status.phase}'=Succeeded workflow \
   -l "$deploy_selector" \
   --timeout="$WORKFLOW_TIMEOUT"
 
-echo "Preview lifecycle submission verified for ${SCM_REPOSITORY_NAME}-pr-${SCM_PULL_REQUEST}"
+environment_name="${SCM_REPOSITORY_NAME}-pr-${SCM_PULL_REQUEST}"
+environment_json="$(curl --fail-with-body --silent "${CONTROL_PLANE_URL}/api/v1/environments/${environment_name}")"
+deployed_image="$(jq -r '.environment.source.deployed_image // empty' <<<"$environment_json")"
+image_digest="$(jq -r '.environment.source.image_digest // empty' <<<"$environment_json")"
+policy="$(jq -r '.environment.source.vulnerability_policy // empty' <<<"$environment_json")"
+running_image="$(kubectl -n "$environment_name" get deployment preview -o jsonpath='{.spec.template.spec.containers[0].image}')"
+
+if [[ ! "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  echo "Control plane did not publish a valid image digest" >&2
+  exit 1
+fi
+if [[ "$deployed_image" != *"@${image_digest}" || "$running_image" != "$deployed_image" ]]; then
+  echo "Running workload is not pinned to the promoted digest" >&2
+  exit 1
+fi
+if [[ "$policy" != "passed" ]]; then
+  echo "Vulnerability policy was not recorded as passed" >&2
+  exit 1
+fi
+
+echo "Attested, policy-gated preview verified for ${environment_name} at ${deployed_image}"

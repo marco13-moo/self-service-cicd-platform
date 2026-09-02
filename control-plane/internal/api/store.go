@@ -198,10 +198,18 @@ func (s *ServiceStore) ListEnvironments() []*orchestrator.Environment {
 	return out
 }
 
+type DeploymentEvidence struct {
+	ImageDigest         string
+	DeployedImage       string
+	SBOMReference       string
+	ProvenanceReference string
+	VulnerabilityPolicy string
+}
+
 // ObserveDeployment performs a generation-aware compare-and-set. A terminal
 // result from an obsolete Workflow is ignored rather than being allowed to
-// promote the desired SHA of a newer deployment generation.
-func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation int64, phase, message string, observedAt time.Time) (bool, error) {
+// promote the desired artifact of a newer deployment generation.
+func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation int64, phase, message string, observedAt time.Time, evidence DeploymentEvidence) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	env, ok := s.environments[name]
@@ -212,7 +220,7 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 		return false, nil
 	}
 	source := env.Spec.Source
-	if source.DeploymentPhase == phase && source.DeploymentMessage == message && !(phase == "Succeeded" && (source.DeployedSHA != source.DesiredSHA || source.DeployedImage != source.DesiredImage || source.PreviewURL != source.DesiredPreviewURL)) {
+	if source.DeploymentPhase == phase && source.DeploymentMessage == message && !(phase == "Succeeded" && (source.DeployedSHA != source.DesiredSHA || source.DeployedImage != evidence.DeployedImage || source.PreviewURL != source.DesiredPreviewURL)) {
 		return false, nil
 	}
 	previous := cloneEnvironment(env)
@@ -222,7 +230,11 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 	source.ObservedAt = &stamp
 	if phase == "Succeeded" {
 		source.DeployedSHA = source.DesiredSHA
-		source.DeployedImage = source.DesiredImage
+		source.DeployedImage = evidence.DeployedImage
+		source.ImageDigest = evidence.ImageDigest
+		source.SBOMReference = evidence.SBOMReference
+		source.ProvenanceReference = evidence.ProvenanceReference
+		source.VulnerabilityPolicy = evidence.VulnerabilityPolicy
 		source.PreviewURL = source.DesiredPreviewURL
 	}
 	if err := s.persistLocked(); err != nil {

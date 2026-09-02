@@ -23,17 +23,21 @@ type EnvironmentSpec struct {
 }
 
 type SourceRevision struct {
-	Provider          string `json:"provider"`
-	Repository        string `json:"repository"`
-	CloneURL          string `json:"clone_url,omitempty"`
-	PullRequest       int    `json:"pull_request"`
-	DesiredSHA        string `json:"desired_sha"`
-	DeployedSHA       string `json:"deployed_sha,omitempty"`
-	Generation        int64  `json:"generation"`
-	DesiredImage      string `json:"desired_image,omitempty"`
-	DeployedImage     string `json:"deployed_image,omitempty"`
-	DesiredPreviewURL string `json:"desired_preview_url,omitempty"`
-	PreviewURL        string `json:"preview_url,omitempty"`
+	Provider            string `json:"provider"`
+	Repository          string `json:"repository"`
+	CloneURL            string `json:"clone_url,omitempty"`
+	PullRequest         int    `json:"pull_request"`
+	DesiredSHA          string `json:"desired_sha"`
+	DeployedSHA         string `json:"deployed_sha,omitempty"`
+	Generation          int64  `json:"generation"`
+	DesiredImage        string `json:"desired_image,omitempty"`
+	DeployedImage       string `json:"deployed_image,omitempty"`
+	ImageDigest         string `json:"image_digest,omitempty"`
+	SBOMReference       string `json:"sbom_reference,omitempty"`
+	ProvenanceReference string `json:"provenance_reference,omitempty"`
+	VulnerabilityPolicy string `json:"vulnerability_policy,omitempty"`
+	DesiredPreviewURL   string `json:"desired_preview_url,omitempty"`
+	PreviewURL          string `json:"preview_url,omitempty"`
 
 	// Deployment observation is derived from the current generation's Argo
 	// Workflow. It is persisted so API readers retain the last known outcome
@@ -44,15 +48,19 @@ type SourceRevision struct {
 }
 
 type PreviewDeployment struct {
-	ProjectType        string
-	ImageRef           string
-	ContainerPort      int
-	Dockerfile         string
-	PreviewHost        string
-	PreviewURL         string
-	BuilderImage       string
-	RegistrySecretName string
-	RegistryInsecure   bool
+	ProjectType             string
+	ImageRef                string
+	ContainerPort           int
+	Dockerfile              string
+	PreviewHost             string
+	PreviewURL              string
+	BuilderImage            string
+	RegistrySecretName      string
+	RegistryInsecure        bool
+	ScannerImage            string
+	VulnerabilitySeverities string
+	IgnoreUnfixed           bool
+	TargetPlatform          string
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.

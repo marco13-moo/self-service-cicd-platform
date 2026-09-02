@@ -49,10 +49,14 @@ type ReconcilerConfig struct{ PreviewTTL time.Duration }
 type DatabaseConfig struct{ URL string }
 
 type PreviewConfig struct {
-	ImageRepository    string
-	BaseDomain         string
-	URLScheme          string
-	BuilderImage       string
-	RegistrySecretName string
-	RegistryInsecure   bool
+	ImageRepository         string
+	BaseDomain              string
+	URLScheme               string
+	BuilderImage            string
+	RegistrySecretName      string
+	RegistryInsecure        bool
+	ScannerImage            string
+	VulnerabilitySeverities string
+	IgnoreUnfixed           bool
+	TargetPlatform          string
 }

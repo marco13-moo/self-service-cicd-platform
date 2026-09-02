@@ -55,6 +55,14 @@ spec:
               value: moby/buildkit:v0.33.0-rootless
             - name: PREVIEW_REGISTRY_SECRET
               value: registry-credentials
+            - name: PREVIEW_SCANNER_IMAGE
+              value: aquasec/trivy:0.74.0
+            - name: PREVIEW_VULNERABILITY_SEVERITIES
+              value: CRITICAL
+            - name: PREVIEW_VULNERABILITY_IGNORE_UNFIXED
+              value: "true"
+            - name: PREVIEW_TARGET_PLATFORM
+              value: linux/amd64
             - name: BITBUCKET_TOKEN
               valueFrom:
                 secretKeyRef:

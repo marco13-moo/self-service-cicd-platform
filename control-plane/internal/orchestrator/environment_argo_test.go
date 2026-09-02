@@ -84,12 +84,14 @@ func TestDeploySubmitsImmutableImageAndRoutingContract(t *testing.T) {
 		Dockerfile: "deploy/Dockerfile", PreviewHost: "checkout-pr-42.preview.test",
 		PreviewURL: "https://checkout-pr-42.preview.test", BuilderImage: "buildkit:test",
 		RegistrySecretName: "registry-credentials", RegistryInsecure: true,
+		ScannerImage: "trivy:test", VulnerabilitySeverities: "HIGH,CRITICAL", IgnoreUnfixed: true,
+		TargetPlatform: "linux/arm64",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	parameters := executor.submissions[0].parameters
-	if parameters["image_ref"] != "registry.test/previews/checkout:abc123" || parameters["container_port"] != "8080" || parameters["registry_insecure"] != "true" {
+	if parameters["image_ref"] != "registry.test/previews/checkout:abc123" || parameters["container_port"] != "8080" || parameters["registry_insecure"] != "true" || parameters["scanner_image"] != "trivy:test" || parameters["vulnerability_severities"] != "HIGH,CRITICAL" || parameters["ignore_unfixed"] != "true" || parameters["target_platform"] != "linux/arm64" {
 		t.Fatalf("unexpected deployment parameters: %#v", parameters)
 	}
 }
