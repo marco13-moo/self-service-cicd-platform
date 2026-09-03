@@ -1,0 +1,153 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-kms-sign
+  namespace: argo
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: argo-env-admin
+      restartPolicy: Never
+      volumes:
+        - name: vault-token
+          emptyDir:
+            medium: Memory
+        - name: vault-service-account-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: vault
+                  expirationSeconds: 600
+      initContainers:
+        - name: vault-kubernetes-login
+          image: hashicorp/vault:1.20.4
+          command: [sh, -ec]
+          args:
+            - |
+              umask 077
+              token=$(cat /var/run/secrets/vault/token)
+              vault write -field=token auth/kubernetes/login \
+                role=self-service-cicd-signer jwt="$token" > /vault-token/.vault-token
+              chown 65532:65532 /vault-token/.vault-token
+              chmod 0400 /vault-token/.vault-token
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: VAULT_ADDR
+              value: http://vault.kms-conformance.svc:8200
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault-token
+            - name: vault-service-account-token
+              mountPath: /var/run/secrets/vault
+              readOnly: true
+      containers:
+        - name: cosign
+          image: ghcr.io/sigstore/cosign/cosign:v2.6.4
+          command: [cosign]
+          args:
+            - sign
+            - --yes
+            - --key
+            - hashivault://preview-signing
+            - --tlog-upload=false
+            - --registry-referrers-mode=legacy
+            - --allow-http-registry=true
+            - KMS_TEST_IMAGE
+          env:
+            - name: HOME
+              value: /vault-token
+            - name: VAULT_ADDR
+              value: http://vault.kms-conformance.svc:8200
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault-token
+              readOnly: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-kms-policy-predicate
+  namespace: argo
+data:
+  policy.json: |
+    {"result":"passed","profile":"vault-kubernetes-conformance"}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-kms-attest
+  namespace: argo
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: argo-env-admin
+      restartPolicy: Never
+      volumes:
+        - name: vault-token
+          emptyDir:
+            medium: Memory
+        - name: vault-service-account-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: vault
+                  expirationSeconds: 600
+        - name: predicate
+          configMap:
+            name: vault-kms-policy-predicate
+      initContainers:
+        - name: vault-kubernetes-login
+          image: hashicorp/vault:1.20.4
+          command: [sh, -ec]
+          args:
+            - |
+              umask 077
+              token=$(cat /var/run/secrets/vault/token)
+              vault write -field=token auth/kubernetes/login \
+                role=self-service-cicd-signer jwt="$token" > /vault-token/.vault-token
+              chown 65532:65532 /vault-token/.vault-token
+              chmod 0400 /vault-token/.vault-token
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: VAULT_ADDR
+              value: http://vault.kms-conformance.svc:8200
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault-token
+            - name: vault-service-account-token
+              mountPath: /var/run/secrets/vault
+              readOnly: true
+      containers:
+        - name: cosign
+          image: ghcr.io/sigstore/cosign/cosign:v2.6.4
+          command: [cosign]
+          args:
+            - attest
+            - --yes
+            - --key
+            - hashivault://preview-signing
+            - --predicate
+            - /predicate/policy.json
+            - --type
+            - https://self-service-cicd.dev/attestations/vulnerability-policy/v1
+            - --tlog-upload=false
+            - --allow-http-registry=true
+            - KMS_TEST_IMAGE
+          env:
+            - name: HOME
+              value: /vault-token
+            - name: VAULT_ADDR
+              value: http://vault.kms-conformance.svc:8200
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault-token
+              readOnly: true
+            - name: predicate
+              mountPath: /predicate
+              readOnly: true

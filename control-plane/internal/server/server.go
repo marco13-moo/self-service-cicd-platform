@@ -137,6 +137,8 @@ func New(
 			ScannerImage: cfg.Preview.ScannerImage, VulnerabilitySeverities: cfg.Preview.VulnerabilitySeverities,
 			CosignImage: cfg.Preview.CosignImage, CosignPrivateKeySecret: cfg.Preview.CosignPrivateKeySecret,
 			CosignSigner: cfg.Preview.CosignSigner, SigningProfile: cfg.Preview.SigningProfile, CosignPublicKeySecret: cfg.Preview.CosignPublicKeySecret,
+			CosignAuthMode: cfg.Preview.CosignAuthMode, VaultImage: cfg.Preview.VaultImage,
+			VaultAddress: cfg.Preview.VaultAddress, VaultRole: cfg.Preview.VaultRole,
 			PolicyPredicateType: cfg.Preview.PolicyPredicateType, VEXConfigMap: cfg.Preview.VEXConfigMap,
 			IgnoreUnfixed:  cfg.Preview.IgnoreUnfixed,
 			TargetPlatform: cfg.Preview.TargetPlatform,

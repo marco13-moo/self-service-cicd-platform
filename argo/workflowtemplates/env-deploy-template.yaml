@@ -29,6 +29,10 @@ spec:
       - name: cosign_image
       - name: cosign_signer
       - name: signing_profile
+      - name: cosign_auth_mode
+      - name: vault_image
+      - name: vault_addr
+      - name: vault_role
       - name: cosign_private_key_secret
       - name: cosign_public_key_secret
       - name: policy_predicate_type
@@ -51,6 +55,16 @@ spec:
       configMap:
         name: "{{workflow.parameters.vex_config_map}}"
         optional: true
+    - name: vault-token
+      emptyDir:
+        medium: Memory
+    - name: vault-service-account-token
+      projected:
+        sources:
+          - serviceAccountToken:
+              path: token
+              audience: vault
+              expirationSeconds: 600
   templates:
     - name: build-and-deploy
       dag:
@@ -222,6 +236,10 @@ spec:
           - --allow-http-registry={{workflow.parameters.registry_insecure}}
           - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
         env:
+          - name: HOME
+            value: /vault-token
+          - name: VAULT_ADDR
+            value: "{{workflow.parameters.vault_addr}}"
           - name: COSIGN_PASSWORD
             valueFrom:
               secretKeyRef:
@@ -237,6 +255,37 @@ spec:
           - name: registry-credentials
             mountPath: /home/nonroot/.docker
             readOnly: true
+          - name: vault-token
+            mountPath: /vault-token
+            readOnly: true
+      initContainers:
+        - name: vault-kubernetes-login
+          image: "{{workflow.parameters.vault_image}}"
+          command: [sh, -ec]
+          args:
+            - |
+              if [ '{{workflow.parameters.cosign_auth_mode}}' != vault-kubernetes ]; then
+                exit 0
+              fi
+              umask 077
+              token=$(cat /var/run/secrets/vault/token)
+              vault write -field=token auth/kubernetes/login \
+                role='{{workflow.parameters.vault_role}}' jwt="$token" \
+                > /vault-token/.vault-token
+              chown 65532:65532 /vault-token/.vault-token
+              chmod 0400 /vault-token/.vault-token
+              test -s /vault-token/.vault-token
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: VAULT_ADDR
+              value: "{{workflow.parameters.vault_addr}}"
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault-token
+            - name: vault-service-account-token
+              mountPath: /var/run/secrets/vault
+              readOnly: true
 
     - name: attest-policy
       inputs:
@@ -253,6 +302,7 @@ spec:
                   "sourceRevision": "{{workflow.parameters.commit_sha}}",
                   "scanner": "{{workflow.parameters.scanner_image}}",
                   "signingProfile": "{{workflow.parameters.signing_profile}}",
+                  "signerAuthentication": "{{workflow.parameters.cosign_auth_mode}}",
                   "blockingSeverities": "{{workflow.parameters.vulnerability_severities}}",
                   "ignoreUnfixed": {{workflow.parameters.ignore_unfixed}},
                   "vexConfigMap": "{{workflow.parameters.vex_config_map}}"
@@ -270,11 +320,14 @@ spec:
           - --type
           - "{{workflow.parameters.policy_predicate_type}}"
           - --tlog-upload=false
-          - --registry-referrers-mode=legacy
           - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
           - --allow-http-registry={{workflow.parameters.registry_insecure}}
           - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
         env:
+          - name: HOME
+            value: /vault-token
+          - name: VAULT_ADDR
+            value: "{{workflow.parameters.vault_addr}}"
           - name: COSIGN_PASSWORD
             valueFrom:
               secretKeyRef:
@@ -290,6 +343,37 @@ spec:
           - name: registry-credentials
             mountPath: /home/nonroot/.docker
             readOnly: true
+          - name: vault-token
+            mountPath: /vault-token
+            readOnly: true
+      initContainers:
+        - name: vault-kubernetes-login
+          image: "{{workflow.parameters.vault_image}}"
+          command: [sh, -ec]
+          args:
+            - |
+              if [ '{{workflow.parameters.cosign_auth_mode}}' != vault-kubernetes ]; then
+                exit 0
+              fi
+              umask 077
+              token=$(cat /var/run/secrets/vault/token)
+              vault write -field=token auth/kubernetes/login \
+                role='{{workflow.parameters.vault_role}}' jwt="$token" \
+                > /vault-token/.vault-token
+              chown 65532:65532 /vault-token/.vault-token
+              chmod 0400 /vault-token/.vault-token
+              test -s /vault-token/.vault-token
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: VAULT_ADDR
+              value: "{{workflow.parameters.vault_addr}}"
+          volumeMounts:
+            - name: vault-token
+              mountPath: /vault-token
+            - name: vault-service-account-token
+              mountPath: /var/run/secrets/vault
+              readOnly: true
 
     - name: verify-policy-attestation
       inputs:
@@ -305,7 +389,6 @@ spec:
           - --type
           - "{{workflow.parameters.policy_predicate_type}}"
           - --insecure-ignore-tlog
-          - --registry-referrers-mode=legacy
           - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
           - --allow-http-registry={{workflow.parameters.registry_insecure}}
           - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
@@ -332,7 +415,6 @@ spec:
           - --key
           - /cosign-public/cosign.pub
           - --insecure-ignore-tlog
-          - --registry-referrers-mode=legacy
           - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
           - --allow-http-registry={{workflow.parameters.registry_insecure}}
           - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"

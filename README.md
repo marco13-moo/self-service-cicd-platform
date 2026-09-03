@@ -125,6 +125,10 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_COSIGN_IMAGE` | `ghcr.io/sigstore/cosign/cosign:v2.6.4` | Maintained Cosign 2 executor used for digest signing and Kyverno-compatible verification |
 | `PREVIEW_COSIGN_SIGNER` | `/cosign-private/cosign.key` | Cosign file or KMS signer URI; production uses workload-identity-authorized KMS |
 | `PREVIEW_SIGNING_PROFILE` | `key` | `key` for development or `kms` to require a supported KMS signer URI |
+| `PREVIEW_COSIGN_AUTH_MODE` | `ambient` | `ambient` cloud credentials or short-lived `vault-kubernetes` authentication |
+| `PREVIEW_VAULT_IMAGE` | `hashicorp/vault:1.20.4` | Vault client used only by the Kubernetes login init container |
+| `PREVIEW_VAULT_ADDR` | unset | Required Vault/OpenBao API address for `vault-kubernetes` authentication |
+| `PREVIEW_VAULT_ROLE` | `self-service-cicd-signer` | Vault Kubernetes-auth role bound to the Argo ServiceAccount |
 | `PREVIEW_COSIGN_PRIVATE_KEY_SECRET` | `preview-cosign-private` | Argo Secret containing `cosign.key` and optional `password` |
 | `PREVIEW_COSIGN_PUBLIC_KEY_SECRET` | `preview-cosign-public` | Public-only Argo Secret containing `cosign.pub` |
 | `PREVIEW_POLICY_PREDICATE_TYPE` | `https://self-service-cicd.dev/attestations/vulnerability-policy/v1` | Versioned signed vulnerability-policy predicate type |
@@ -142,6 +146,16 @@ replace its illustrative KMS URI, and bind the `argo-env-admin` ServiceAccount
 to the corresponding cloud workload identity. The ConfigMap contains only key
 identity and predicate metadata; cloud credentials and private key material do
 not belong in it.
+
+The provider-neutral Vault/OpenBao conformance lane is bootstrapped with
+[`bootstrap-vault-kms-conformance.sh`](scripts/bootstrap-vault-kms-conformance.sh)
+and executed by [`validate-kms-signing.sh`](scripts/validate-kms-signing.sh) with
+a cluster-reachable digest in `KMS_TEST_IMAGE`. It validates audience-bound
+Kubernetes authentication, non-exportable signing, signed policy attestations,
+admission, and revocation. Remove its isolated resources with
+[`teardown-vault-kms-conformance.sh`](scripts/teardown-vault-kms-conformance.sh).
+Provider status and evidence requirements are documented in
+[`kms-provider-certification.md`](docs/kms-provider-certification.md).
 
 When `DATABASE_URL` is configured, delivery deduplication and command leasing use
 PostgreSQL transactions with `FOR UPDATE SKIP LOCKED`, permitting multiple

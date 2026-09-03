@@ -58,6 +58,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", RegistrySecretName: "registry-credentials",
 		ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", IgnoreUnfixed: true,
 		CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview", SigningProfile: "kms", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public",
+		CosignAuthMode: "ambient", VaultImage: "vault:test", VaultRole: "signer",
 		PolicyPredicateType: "https://example.test/policy/v1",
 		TargetPlatform:      "linux/amd64",
 	}, zap.NewNop())

@@ -71,6 +71,24 @@ spec:
                   name: preview-trust
                   key: signing-profile
                   optional: true
+            - name: PREVIEW_COSIGN_AUTH_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: preview-trust
+                  key: cosign-auth-mode
+                  optional: true
+            - name: PREVIEW_VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: preview-trust
+                  key: vault-address
+                  optional: true
+            - name: PREVIEW_VAULT_ROLE
+              valueFrom:
+                configMapKeyRef:
+                  name: preview-trust
+                  key: vault-role
+                  optional: true
             - name: PREVIEW_POLICY_PREDICATE_TYPE
               valueFrom:
                 configMapKeyRef:

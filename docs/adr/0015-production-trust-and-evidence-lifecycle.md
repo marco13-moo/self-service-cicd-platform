@@ -88,3 +88,12 @@ against restored subjects succeed.
 - Migrate to Cosign 3 OCI 1.1 referrers and Kyverno ImageValidatingPolicy once
   the selected production registry passes compatibility tests.
 - Add periodic evidence re-verification and compromised-subject quarantine.
+
+## Conformance evidence
+
+The Vault/OpenBao-compatible KMS contract is exercised by an isolated kind
+conformance lane using an audience-bound projected ServiceAccount token,
+five-minute Vault credentials, a non-exportable Transit key, signed image and
+policy evidence, Kyverno admission, and signer-policy revocation. The verified
+2026-09-03 result is recorded in
+[`../evidence/vault-kms-conformance-2026-09-03.md`](../evidence/vault-kms-conformance-2026-09-03.md).

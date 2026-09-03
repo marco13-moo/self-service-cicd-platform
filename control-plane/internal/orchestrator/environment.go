@@ -67,6 +67,10 @@ type PreviewDeployment struct {
 	CosignImage             string
 	CosignSigner            string
 	SigningProfile          string
+	CosignAuthMode          string
+	VaultImage              string
+	VaultAddress            string
+	VaultRole               string
 	CosignPrivateKeySecret  string
 	CosignPublicKeySecret   string
 	PolicyPredicateType     string

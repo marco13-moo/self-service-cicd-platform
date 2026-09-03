@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-kms-verify
+  namespace: argo
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: public-key
+          secret:
+            secretName: preview-cosign-public-conformance
+      containers:
+        - name: cosign
+          image: ghcr.io/sigstore/cosign/cosign:v2.6.4
+          command: [cosign]
+          args:
+            - verify
+            - --key
+            - /cosign/cosign.pub
+            - --insecure-ignore-tlog
+            - --allow-http-registry=true
+            - --allow-insecure-registry=true
+            - KMS_TEST_IMAGE
+          volumeMounts:
+            - name: public-key
+              mountPath: /cosign
+              readOnly: true
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-kms-verify-attestation
+  namespace: argo
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: public-key
+          secret:
+            secretName: preview-cosign-public-conformance
+      containers:
+        - name: cosign
+          image: ghcr.io/sigstore/cosign/cosign:v2.6.4
+          command: [cosign]
+          args:
+            - verify-attestation
+            - --key
+            - /cosign/cosign.pub
+            - --type
+            - https://self-service-cicd.dev/attestations/vulnerability-policy/v1
+            - --insecure-ignore-tlog
+            - --allow-http-registry=true
+            - --allow-insecure-registry=true
+            - KMS_TEST_IMAGE
+          volumeMounts:
+            - name: public-key
+              mountPath: /cosign
+              readOnly: true
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: vault-kms-conformance
+spec:
+  background: false
+  rules:
+    - name: verify-conformance-image
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.kms-conformance: enabled
+      verifyImages:
+        - imageReferences: ["self-service-cicd-registry:5000/*"]
+          failureAction: Enforce
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          imageRegistryCredentials:
+            allowInsecureRegistry: true
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public-conformance
+                    rekor:
+                      ignoreTlog: true

@@ -86,6 +86,7 @@ func TestDeploySubmitsImmutableImageAndRoutingContract(t *testing.T) {
 		RegistrySecretName: "registry-credentials", RegistryInsecure: true,
 		ScannerImage: "trivy:test", VulnerabilitySeverities: "HIGH,CRITICAL", IgnoreUnfixed: true,
 		CosignImage: "cosign:test", CosignSigner: "gcpkms://projects/test/key", SigningProfile: "kms", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public", PolicyPredicateType: "https://example.test/policy/v1", VEXConfigMap: "preview-vex-none",
+		CosignAuthMode: "ambient", VaultImage: "vault:test", VaultRole: "signer",
 		TargetPlatform: "linux/arm64",
 	})
 	if err != nil {
@@ -100,6 +101,9 @@ func TestDeploySubmitsImmutableImageAndRoutingContract(t *testing.T) {
 	}
 	if parameters["cosign_signer"] != "gcpkms://projects/test/key" || parameters["signing_profile"] != "kms" || parameters["policy_predicate_type"] != "https://example.test/policy/v1" {
 		t.Fatalf("unexpected signer parameters: %#v", parameters)
+	}
+	if parameters["cosign_auth_mode"] != "ambient" || parameters["vault_image"] != "vault:test" || parameters["vault_role"] != "signer" {
+		t.Fatalf("unexpected signer authentication parameters: %#v", parameters)
 	}
 	if parameters["image_repository"] != "registry.test/previews/checkout" {
 		t.Fatalf("unexpected immutable image repository: %#v", parameters)

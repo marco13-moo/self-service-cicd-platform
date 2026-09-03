@@ -47,6 +47,10 @@ type PreviewRuntimeConfig struct {
 	CosignImage             string
 	CosignSigner            string
 	SigningProfile          string
+	CosignAuthMode          string
+	VaultImage              string
+	VaultAddress            string
+	VaultRole               string
 	CosignPrivateKeySecret  string
 	CosignPublicKeySecret   string
 	PolicyPredicateType     string
@@ -241,6 +245,13 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 	if signingProfile == "kms" && !kmsSigner.MatchString(strings.TrimSpace(r.preview.CosignSigner)) {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_COSIGN_SIGNER must be a supported KMS URI for the kms signing profile")
 	}
+	authMode := strings.ToLower(strings.TrimSpace(r.preview.CosignAuthMode))
+	if authMode != "ambient" && authMode != "vault-kubernetes" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_COSIGN_AUTH_MODE must be ambient or vault-kubernetes")
+	}
+	if authMode == "vault-kubernetes" && (!strings.HasPrefix(r.preview.CosignSigner, "hashivault://") || strings.TrimSpace(r.preview.VaultImage) == "" || strings.TrimSpace(r.preview.VaultAddress) == "" || strings.TrimSpace(r.preview.VaultRole) == "") {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("vault-kubernetes auth requires a hashivault signer, Vault image, address, and role")
+	}
 	severities := strings.ToUpper(strings.TrimSpace(r.preview.VulnerabilitySeverities))
 	if !vulnerabilitySeverities.MatchString(severities) {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_VULNERABILITY_SEVERITIES contains an unsupported severity set")
@@ -289,6 +300,7 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		IgnoreUnfixed:  r.preview.IgnoreUnfixed,
 		TargetPlatform: platform,
 		CosignImage:    r.preview.CosignImage, CosignSigner: r.preview.CosignSigner, SigningProfile: signingProfile, CosignPrivateKeySecret: r.preview.CosignPrivateKeySecret,
+		CosignAuthMode: authMode, VaultImage: r.preview.VaultImage, VaultAddress: r.preview.VaultAddress, VaultRole: r.preview.VaultRole,
 		CosignPublicKeySecret: r.preview.CosignPublicKeySecret, PolicyPredicateType: r.preview.PolicyPredicateType, VEXConfigMap: r.preview.VEXConfigMap,
 	}, nil
 }

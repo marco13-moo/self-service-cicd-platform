@@ -17,4 +17,7 @@ func TestLoadPreviewBuildConfiguration(t *testing.T) {
 	if cfg.Preview.CosignSigner != "/cosign-private/cosign.key" || cfg.Preview.SigningProfile != "key" || cfg.Preview.PolicyPredicateType != "https://self-service-cicd.dev/attestations/vulnerability-policy/v1" {
 		t.Fatalf("preview trust defaults not loaded: %#v", cfg.Preview)
 	}
+	if cfg.Preview.CosignAuthMode != "ambient" || cfg.Preview.VaultImage != "hashicorp/vault:1.20.4" || cfg.Preview.VaultRole != "self-service-cicd-signer" {
+		t.Fatalf("preview signer authentication defaults not loaded: %#v", cfg.Preview)
+	}
 }
