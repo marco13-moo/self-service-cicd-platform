@@ -1,0 +1,36 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-preview-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify preview image signatures
+    policies.kyverno.io/description: >-
+      Reject preview Pods unless every image is digest-pinned and carries a
+      valid Cosign signature rooted in the platform public key.
+spec:
+  background: true
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 30
+  rules:
+    - name: verify-preview-image
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.preview-signature-policy: enforced
+      verifyImages:
+        - imageReferences: ["*"]
+          failureAction: Enforce
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public
+                    rekor:
+                      ignoreTlog: true

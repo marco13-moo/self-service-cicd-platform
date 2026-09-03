@@ -59,4 +59,8 @@ type PreviewConfig struct {
 	VulnerabilitySeverities string
 	IgnoreUnfixed           bool
 	TargetPlatform          string
+	CosignImage             string
+	CosignPrivateKeySecret  string
+	CosignPublicKeySecret   string
+	VEXConfigMap            string
 }

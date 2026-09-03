@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kyverno-preview-cosign-public-key-reader
+  namespace: argo
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["preview-cosign-public"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kyverno-preview-cosign-public-key-reader
+  namespace: argo
+subjects:
+  - kind: ServiceAccount
+    name: kyverno-admission-controller
+    namespace: kyverno
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kyverno-preview-cosign-public-key-reader

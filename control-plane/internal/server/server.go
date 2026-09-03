@@ -135,6 +135,8 @@ func New(
 			URLScheme: cfg.Preview.URLScheme, BuilderImage: cfg.Preview.BuilderImage,
 			RegistrySecretName: cfg.Preview.RegistrySecretName, RegistryInsecure: cfg.Preview.RegistryInsecure,
 			ScannerImage: cfg.Preview.ScannerImage, VulnerabilitySeverities: cfg.Preview.VulnerabilitySeverities,
+			CosignImage: cfg.Preview.CosignImage, CosignPrivateKeySecret: cfg.Preview.CosignPrivateKeySecret,
+			CosignPublicKeySecret: cfg.Preview.CosignPublicKeySecret, VEXConfigMap: cfg.Preview.VEXConfigMap,
 			IgnoreUnfixed:  cfg.Preview.IgnoreUnfixed,
 			TargetPlatform: cfg.Preview.TargetPlatform,
 		}, logger),

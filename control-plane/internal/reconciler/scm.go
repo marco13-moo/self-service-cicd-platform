@@ -43,6 +43,10 @@ type PreviewRuntimeConfig struct {
 	VulnerabilitySeverities string
 	IgnoreUnfixed           bool
 	TargetPlatform          string
+	CosignImage             string
+	CosignPrivateKeySecret  string
+	CosignPublicKeySecret   string
+	VEXConfigMap            string
 }
 
 func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, preview PreviewRuntimeConfig, logger *zap.Logger) *SCMCommandReconciler {
@@ -217,6 +221,9 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 	if strings.TrimSpace(r.preview.ScannerImage) == "" {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_SCANNER_IMAGE is required for preview policy evaluation")
 	}
+	if strings.TrimSpace(r.preview.CosignImage) == "" || strings.TrimSpace(r.preview.CosignPrivateKeySecret) == "" || strings.TrimSpace(r.preview.CosignPublicKeySecret) == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("Cosign image and private/public key Secrets are required for preview signature enforcement")
+	}
 	severities := strings.ToUpper(strings.TrimSpace(r.preview.VulnerabilitySeverities))
 	if !vulnerabilitySeverities.MatchString(severities) {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_VULNERABILITY_SEVERITIES contains an unsupported severity set")
@@ -257,13 +264,15 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		previewURL = scheme + "://" + host
 	}
 	return orchestrator.PreviewDeployment{
-		ProjectType: service.ProjectType, ImageRef: imageRef, ContainerPort: port,
+		ProjectType: service.ProjectType, ImageRef: imageRef, ImageRepository: repository + "/" + imageName, ContainerPort: port,
 		Dockerfile: dockerfile, PreviewHost: host, PreviewURL: previewURL,
 		BuilderImage: r.preview.BuilderImage, RegistrySecretName: r.preview.RegistrySecretName,
 		RegistryInsecure: r.preview.RegistryInsecure,
 		ScannerImage:     r.preview.ScannerImage, VulnerabilitySeverities: severities,
 		IgnoreUnfixed:  r.preview.IgnoreUnfixed,
 		TargetPlatform: platform,
+		CosignImage:    r.preview.CosignImage, CosignPrivateKeySecret: r.preview.CosignPrivateKeySecret,
+		CosignPublicKeySecret: r.preview.CosignPublicKeySecret, VEXConfigMap: r.preview.VEXConfigMap,
 	}, nil
 }
 

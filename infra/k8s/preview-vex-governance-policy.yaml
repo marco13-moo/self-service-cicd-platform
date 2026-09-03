@@ -1,0 +1,46 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: preview-vex-governance
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["configmaps"]
+  validations:
+    - expression: >-
+        !object.metadata.name.startsWith('preview-vex-') ||
+        (has(object.metadata.labels) &&
+         'platform.openvex.dev/governed' in object.metadata.labels &&
+         object.metadata.labels['platform.openvex.dev/governed'] == 'true')
+      message: preview-vex-* ConfigMaps must be explicitly governed
+    - expression: >-
+        !object.metadata.name.startsWith('preview-vex-') ||
+        (has(object.metadata.annotations) &&
+         'platform.openvex.dev/approved-by' in object.metadata.annotations &&
+         'platform.openvex.dev/ticket' in object.metadata.annotations &&
+         'platform.openvex.dev/expires-at' in object.metadata.annotations &&
+         object.metadata.annotations['platform.openvex.dev/approved-by'] != '' &&
+         object.metadata.annotations['platform.openvex.dev/ticket'] != '' &&
+         object.metadata.annotations['platform.openvex.dev/expires-at'].matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'))
+      message: governed VEX requires approved-by, ticket, and RFC3339 UTC expires-at annotations
+    - expression: >-
+        !object.metadata.name.startsWith('preview-vex-') ||
+        (has(object.data) && 'openvex.json' in object.data &&
+         'governance.env' in object.data)
+      message: governed VEX requires openvex.json and governance.env data keys
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: preview-vex-governance
+spec:
+  policyName: preview-vex-governance
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: argo

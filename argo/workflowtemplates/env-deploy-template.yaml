@@ -14,6 +14,7 @@ spec:
       - name: commit_sha
       - name: project_type
       - name: image_ref
+      - name: image_repository
       - name: container_port
       - name: dockerfile
       - name: preview_host
@@ -25,12 +26,26 @@ spec:
       - name: vulnerability_severities
       - name: ignore_unfixed
       - name: target_platform
+      - name: cosign_image
+      - name: cosign_private_key_secret
+      - name: cosign_public_key_secret
+      - name: vex_config_map
   volumes:
     - name: buildkit-state
       emptyDir: {}
     - name: registry-credentials
       secret:
         secretName: "{{workflow.parameters.registry_secret_name}}"
+        optional: true
+    - name: cosign-private-key
+      secret:
+        secretName: "{{workflow.parameters.cosign_private_key_secret}}"
+    - name: cosign-public-key
+      secret:
+        secretName: "{{workflow.parameters.cosign_public_key_secret}}"
+    - name: vulnerability-exceptions
+      configMap:
+        name: "{{workflow.parameters.vex_config_map}}"
         optional: true
   templates:
     - name: build-and-deploy
@@ -46,8 +61,22 @@ spec:
                 - name: image_digest
                   value: "{{tasks.build.outputs.parameters.image-digest}}"
           - name: deploy
-            dependencies: [vulnerability-policy]
+            dependencies: [verify-signature]
             template: deploy-workload
+            arguments:
+              parameters:
+                - name: image_digest
+                  value: "{{tasks.build.outputs.parameters.image-digest}}"
+          - name: sign-image
+            dependencies: [vulnerability-policy]
+            template: sign-image
+            arguments:
+              parameters:
+                - name: image_digest
+                  value: "{{tasks.build.outputs.parameters.image-digest}}"
+          - name: verify-signature
+            dependencies: [sign-image]
+            template: verify-signature
             arguments:
               parameters:
                 - name: image_digest
@@ -126,10 +155,23 @@ spec:
             if [ '{{workflow.parameters.ignore_unfixed}}' = true ]; then
               ignore_unfixed="--ignore-unfixed"
             fi
+            vex=""
+            if [ -f /vex/openvex.json ]; then
+              test -s /vex/governance.env
+              # governance.env is deliberately data, never sourced as shell.
+              expires_at=$(sed -n 's/^expires_at=//p' /vex/governance.env)
+              approved_by=$(sed -n 's/^approved_by=//p' /vex/governance.env)
+              ticket=$(sed -n 's/^ticket=//p' /vex/governance.env)
+              test -n "$expires_at" && test -n "$approved_by" && test -n "$ticket"
+              expires_epoch=$(date -u -d "$expires_at" +%s)
+              test "$expires_epoch" -gt "$(date -u +%s)"
+              vex="--vex /vex/openvex.json"
+              echo "Applying approved VEX exception set ${ticket}; expires ${expires_at}"
+            fi
             # Generate a secondary CycloneDX inventory for cross-tool
             # validation; the SPDX BuildKit attestation remains registry-resident.
             trivy image $insecure --platform '{{workflow.parameters.target_platform}}' --format cyclonedx --output /tmp/sbom.cdx.json "$image"
-            trivy image $insecure $ignore_unfixed --platform '{{workflow.parameters.target_platform}}' --scanners vuln --exit-code 1 \
+            trivy image $insecure $ignore_unfixed $vex --platform '{{workflow.parameters.target_platform}}' --scanners vuln --exit-code 1 \
               --severity '{{workflow.parameters.vulnerability_severities}}' "$image"
             echo "Vulnerability policy passed for ${image}"
         env:
@@ -138,6 +180,71 @@ spec:
         volumeMounts:
           - name: registry-credentials
             mountPath: /root/.docker
+            readOnly: true
+          - name: vulnerability-exceptions
+            mountPath: /vex
+            readOnly: true
+
+    - name: sign-image
+      inputs:
+        parameters:
+          - name: image_digest
+      container:
+        image: "{{workflow.parameters.cosign_image}}"
+        command: [cosign]
+        args:
+          - sign
+          - --yes
+          - --key
+          - /cosign-private/cosign.key
+          - --use-signing-config=false
+          - --tlog-upload=false
+          - --registry-referrers-mode=legacy
+          - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
+          - --allow-http-registry={{workflow.parameters.registry_insecure}}
+          - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
+        env:
+          - name: COSIGN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "{{workflow.parameters.cosign_private_key_secret}}"
+                key: password
+                optional: true
+          - name: DOCKER_CONFIG
+            value: /home/nonroot/.docker
+        volumeMounts:
+          - name: cosign-private-key
+            mountPath: /cosign-private
+            readOnly: true
+          - name: registry-credentials
+            mountPath: /home/nonroot/.docker
+            readOnly: true
+
+    - name: verify-signature
+      inputs:
+        parameters:
+          - name: image_digest
+      container:
+        image: "{{workflow.parameters.cosign_image}}"
+        command: [cosign]
+        args:
+          - verify
+          - --key
+          - /cosign-public/cosign.pub
+          - --insecure-ignore-tlog
+          - --registry-referrers-mode=legacy
+          - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
+          - --allow-http-registry={{workflow.parameters.registry_insecure}}
+          - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
+        env:
+          - name: DOCKER_CONFIG
+            value: /home/nonroot/.docker
+        volumeMounts:
+          - name: cosign-public-key
+            mountPath: /cosign-public
+            readOnly: true
+          - name: registry-credentials
+            mountPath: /home/nonroot/.docker
             readOnly: true
 
     - name: deploy-workload

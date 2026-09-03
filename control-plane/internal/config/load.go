@@ -38,6 +38,10 @@ func Load() *Config {
 			VulnerabilitySeverities: getEnv("PREVIEW_VULNERABILITY_SEVERITIES", "CRITICAL"),
 			IgnoreUnfixed:           getEnvBool("PREVIEW_VULNERABILITY_IGNORE_UNFIXED", true),
 			TargetPlatform:          getEnv("PREVIEW_TARGET_PLATFORM", "linux/amd64"),
+			CosignImage:             getEnv("PREVIEW_COSIGN_IMAGE", "ghcr.io/sigstore/cosign/cosign:v2.6.4"),
+			CosignPrivateKeySecret:  getEnv("PREVIEW_COSIGN_PRIVATE_KEY_SECRET", "preview-cosign-private"),
+			CosignPublicKeySecret:   getEnv("PREVIEW_COSIGN_PUBLIC_KEY_SECRET", "preview-cosign-public"),
+			VEXConfigMap:            getEnv("PREVIEW_VEX_CONFIGMAP", "preview-vex-none"),
 		},
 	}
 }

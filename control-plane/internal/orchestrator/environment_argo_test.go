@@ -80,11 +80,12 @@ func TestDeploySubmitsImmutableImageAndRoutingContract(t *testing.T) {
 		CloneURL: "https://example.test/acme/checkout.git", DesiredSHA: "abc123",
 	}}}
 	_, err := orchestrator.Deploy(context.Background(), env, PreviewDeployment{
-		ProjectType: "go", ImageRef: "registry.test/previews/checkout:abc123", ContainerPort: 8080,
+		ProjectType: "go", ImageRef: "registry.test/previews/checkout:abc123", ImageRepository: "registry.test/previews/checkout", ContainerPort: 8080,
 		Dockerfile: "deploy/Dockerfile", PreviewHost: "checkout-pr-42.preview.test",
 		PreviewURL: "https://checkout-pr-42.preview.test", BuilderImage: "buildkit:test",
 		RegistrySecretName: "registry-credentials", RegistryInsecure: true,
 		ScannerImage: "trivy:test", VulnerabilitySeverities: "HIGH,CRITICAL", IgnoreUnfixed: true,
+		CosignImage: "cosign:test", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public", VEXConfigMap: "preview-vex-none",
 		TargetPlatform: "linux/arm64",
 	})
 	if err != nil {
@@ -93,5 +94,11 @@ func TestDeploySubmitsImmutableImageAndRoutingContract(t *testing.T) {
 	parameters := executor.submissions[0].parameters
 	if parameters["image_ref"] != "registry.test/previews/checkout:abc123" || parameters["container_port"] != "8080" || parameters["registry_insecure"] != "true" || parameters["scanner_image"] != "trivy:test" || parameters["vulnerability_severities"] != "HIGH,CRITICAL" || parameters["ignore_unfixed"] != "true" || parameters["target_platform"] != "linux/arm64" {
 		t.Fatalf("unexpected deployment parameters: %#v", parameters)
+	}
+	if parameters["cosign_image"] != "cosign:test" || parameters["cosign_private_key_secret"] != "cosign-private" || parameters["cosign_public_key_secret"] != "cosign-public" || parameters["vex_config_map"] != "preview-vex-none" {
+		t.Fatalf("unexpected trust parameters: %#v", parameters)
+	}
+	if parameters["image_repository"] != "registry.test/previews/checkout" {
+		t.Fatalf("unexpected immutable image repository: %#v", parameters)
 	}
 }

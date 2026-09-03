@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: preview-vex-example
+  namespace: argo
+  labels:
+    platform.openvex.dev/governed: "true"
+  annotations:
+    platform.openvex.dev/approved-by: security@example.com
+    platform.openvex.dev/ticket: SEC-0000
+    platform.openvex.dev/expires-at: "2099-01-01T00:00:00Z"
+data:
+  governance.env: |
+    approved_by=security@example.com
+    ticket=SEC-0000
+    expires_at=2099-01-01T00:00:00Z
+  openvex.json: |
+    {
+      "@context": "https://openvex.dev/ns/v0.2.0",
+      "@id": "https://example.com/vex/replace-me",
+      "author": "security@example.com",
+      "timestamp": "2026-09-02T00:00:00Z",
+      "version": 1,
+      "statements": []
+    }

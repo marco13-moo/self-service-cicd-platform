@@ -122,6 +122,10 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_VULNERABILITY_SEVERITIES` | `CRITICAL` | Comma-separated severities that block deployment |
 | `PREVIEW_VULNERABILITY_IGNORE_UNFIXED` | `true` | Ignore blocking findings that have no available fix |
 | `PREVIEW_TARGET_PLATFORM` | `linux/amd64` | OCI build and scan platform; use `linux/arm64` for ARM clusters |
+| `PREVIEW_COSIGN_IMAGE` | `ghcr.io/sigstore/cosign/cosign:v2.6.4` | Maintained Cosign 2 executor used for digest signing and Kyverno-compatible verification |
+| `PREVIEW_COSIGN_PRIVATE_KEY_SECRET` | `preview-cosign-private` | Argo Secret containing `cosign.key` and optional `password` |
+| `PREVIEW_COSIGN_PUBLIC_KEY_SECRET` | `preview-cosign-public` | Public-only Argo Secret containing `cosign.pub` |
+| `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Optional governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
 | `DATABASE_URL` | unset | PostgreSQL connection URL for distributed command leasing; file queue is the fallback |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
@@ -164,3 +168,5 @@ OCI construction, namespace deployment, and preview routing are specified in
 [`ADR 0012`](docs/adr/0012-oci-preview-build-deployment-and-routing.md).
 Digest-pinned deployment, OCI attestations, and vulnerability admission are
 specified in [`ADR 0013`](docs/adr/0013-digest-pinned-artifacts-attestations-and-vulnerability-policy.md).
+Cosign trust, admission enforcement, and expiring OpenVEX exceptions are
+specified in [`ADR 0014`](docs/adr/0014-signed-artifacts-admission-and-vex-governance.md).

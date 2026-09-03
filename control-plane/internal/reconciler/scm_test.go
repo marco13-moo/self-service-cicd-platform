@@ -57,6 +57,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, PreviewRuntimeConfig{
 		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", RegistrySecretName: "registry-credentials",
 		ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", IgnoreUnfixed: true,
+		CosignImage: "cosign:test", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public",
 		TargetPlatform: "linux/amd64",
 	}, zap.NewNop())
 	if processed, err := reconciler.ProcessOne(context.Background(), now); err != nil || !processed {
@@ -68,7 +69,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	if fake.deploys != 1 {
 		t.Fatalf("expected one deployment, got %d", fake.deploys)
 	}
-	if fake.lastDeployment.ImageRef != "registry.example.test/previews/checkout:abc1234" || fake.lastDeployment.PreviewURL != "http://preview.checkout-pr-3.svc.cluster.local:8080" {
+	if fake.lastDeployment.ImageRef != "registry.example.test/previews/checkout:abc1234" || fake.lastDeployment.ImageRepository != "registry.example.test/previews/checkout" || fake.lastDeployment.PreviewURL != "http://preview.checkout-pr-3.svc.cluster.local:8080" {
 		t.Fatalf("unexpected preview deployment: %#v", fake.lastDeployment)
 	}
 	env, err := store.GetEnvironment("checkout-pr-3")

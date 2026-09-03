@@ -22,4 +22,5 @@ spec:
           kubectl label namespace {{workflow.parameters.env_name}} \
             service={{workflow.parameters.service}} \
             managed-by=self-service-cicd \
+            platform.preview-signature-policy=enforced \
             --overwrite

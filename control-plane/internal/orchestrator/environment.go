@@ -50,6 +50,7 @@ type SourceRevision struct {
 type PreviewDeployment struct {
 	ProjectType             string
 	ImageRef                string
+	ImageRepository         string
 	ContainerPort           int
 	Dockerfile              string
 	PreviewHost             string
@@ -61,6 +62,10 @@ type PreviewDeployment struct {
 	VulnerabilitySeverities string
 	IgnoreUnfixed           bool
 	TargetPlatform          string
+	CosignImage             string
+	CosignPrivateKeySecret  string
+	CosignPublicKeySecret   string
+	VEXConfigMap            string
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.
