@@ -204,6 +204,8 @@ type DeploymentEvidence struct {
 	SBOMReference       string
 	ProvenanceReference string
 	VulnerabilityPolicy string
+	SignatureReference  string
+	PolicyAttestation   string
 }
 
 // ObserveDeployment performs a generation-aware compare-and-set. A terminal
@@ -235,6 +237,8 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 		source.SBOMReference = evidence.SBOMReference
 		source.ProvenanceReference = evidence.ProvenanceReference
 		source.VulnerabilityPolicy = evidence.VulnerabilityPolicy
+		source.SignatureReference = evidence.SignatureReference
+		source.PolicyAttestation = evidence.PolicyAttestation
 		source.PreviewURL = source.DesiredPreviewURL
 	}
 	if err := s.persistLocked(); err != nil {

@@ -179,8 +179,11 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 		"ignore_unfixed":            fmt.Sprintf("%t", deployment.IgnoreUnfixed),
 		"target_platform":           deployment.TargetPlatform,
 		"cosign_image":              deployment.CosignImage,
+		"cosign_signer":             deployment.CosignSigner,
+		"signing_profile":           deployment.SigningProfile,
 		"cosign_private_key_secret": deployment.CosignPrivateKeySecret,
 		"cosign_public_key_secret":  deployment.CosignPublicKeySecret,
+		"policy_predicate_type":     deployment.PolicyPredicateType,
 		"vex_config_map":            deployment.VEXConfigMap,
 	}
 	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()

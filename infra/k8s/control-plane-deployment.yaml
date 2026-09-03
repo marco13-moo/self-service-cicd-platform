@@ -57,6 +57,26 @@ spec:
               value: registry-credentials
             - name: PREVIEW_SCANNER_IMAGE
               value: aquasec/trivy:0.74.0
+            - name: PREVIEW_COSIGN_SIGNER
+              valueFrom:
+                configMapKeyRef:
+                  # Production sets a KMS URI here; signer credentials are
+                  # furnished to Argo through workload identity, never config.
+                  name: preview-trust
+                  key: cosign-signer
+                  optional: true
+            - name: PREVIEW_SIGNING_PROFILE
+              valueFrom:
+                configMapKeyRef:
+                  name: preview-trust
+                  key: signing-profile
+                  optional: true
+            - name: PREVIEW_POLICY_PREDICATE_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: preview-trust
+                  key: policy-predicate-type
+                  optional: true
             - name: PREVIEW_VULNERABILITY_SEVERITIES
               value: CRITICAL
             - name: PREVIEW_VULNERABILITY_IGNORE_UNFIXED

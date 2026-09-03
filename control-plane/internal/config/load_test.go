@@ -14,4 +14,7 @@ func TestLoadPreviewBuildConfiguration(t *testing.T) {
 	if !cfg.Preview.RegistryInsecure || cfg.Preview.URLScheme != "https" || cfg.Preview.BuilderImage == "" || cfg.Preview.ScannerImage != "aquasec/trivy:0.74.0" || cfg.Preview.VulnerabilitySeverities != "CRITICAL" || !cfg.Preview.IgnoreUnfixed || cfg.Preview.TargetPlatform != "linux/amd64" {
 		t.Fatalf("preview build defaults not loaded: %#v", cfg.Preview)
 	}
+	if cfg.Preview.CosignSigner != "/cosign-private/cosign.key" || cfg.Preview.SigningProfile != "key" || cfg.Preview.PolicyPredicateType != "https://self-service-cicd.dev/attestations/vulnerability-policy/v1" {
+		t.Fatalf("preview trust defaults not loaded: %#v", cfg.Preview)
+	}
 }

@@ -27,8 +27,11 @@ spec:
       - name: ignore_unfixed
       - name: target_platform
       - name: cosign_image
+      - name: cosign_signer
+      - name: signing_profile
       - name: cosign_private_key_secret
       - name: cosign_public_key_secret
+      - name: policy_predicate_type
       - name: vex_config_map
   volumes:
     - name: buildkit-state
@@ -40,6 +43,7 @@ spec:
     - name: cosign-private-key
       secret:
         secretName: "{{workflow.parameters.cosign_private_key_secret}}"
+        optional: true
     - name: cosign-public-key
       secret:
         secretName: "{{workflow.parameters.cosign_public_key_secret}}"
@@ -61,7 +65,7 @@ spec:
                 - name: image_digest
                   value: "{{tasks.build.outputs.parameters.image-digest}}"
           - name: deploy
-            dependencies: [verify-signature]
+            dependencies: [verify-signature, verify-policy-attestation]
             template: deploy-workload
             arguments:
               parameters:
@@ -77,6 +81,20 @@ spec:
           - name: verify-signature
             dependencies: [sign-image]
             template: verify-signature
+            arguments:
+              parameters:
+                - name: image_digest
+                  value: "{{tasks.build.outputs.parameters.image-digest}}"
+          - name: attest-policy
+            dependencies: [sign-image]
+            template: attest-policy
+            arguments:
+              parameters:
+                - name: image_digest
+                  value: "{{tasks.build.outputs.parameters.image-digest}}"
+          - name: verify-policy-attestation
+            dependencies: [attest-policy]
+            template: verify-policy-attestation
             arguments:
               parameters:
                 - name: image_digest
@@ -196,7 +214,7 @@ spec:
           - sign
           - --yes
           - --key
-          - /cosign-private/cosign.key
+          - "{{workflow.parameters.cosign_signer}}"
           - --use-signing-config=false
           - --tlog-upload=false
           - --registry-referrers-mode=legacy
@@ -215,6 +233,88 @@ spec:
         volumeMounts:
           - name: cosign-private-key
             mountPath: /cosign-private
+            readOnly: true
+          - name: registry-credentials
+            mountPath: /home/nonroot/.docker
+            readOnly: true
+
+    - name: attest-policy
+      inputs:
+        parameters:
+          - name: image_digest
+        artifacts:
+          - name: policy-predicate
+            path: /tmp/policy-result.json
+            raw:
+              data: |
+                {
+                  "result": "passed",
+                  "subjectDigest": "{{inputs.parameters.image_digest}}",
+                  "sourceRevision": "{{workflow.parameters.commit_sha}}",
+                  "scanner": "{{workflow.parameters.scanner_image}}",
+                  "signingProfile": "{{workflow.parameters.signing_profile}}",
+                  "blockingSeverities": "{{workflow.parameters.vulnerability_severities}}",
+                  "ignoreUnfixed": {{workflow.parameters.ignore_unfixed}},
+                  "vexConfigMap": "{{workflow.parameters.vex_config_map}}"
+                }
+      container:
+        image: "{{workflow.parameters.cosign_image}}"
+        command: [cosign]
+        args:
+          - attest
+          - --yes
+          - --key
+          - "{{workflow.parameters.cosign_signer}}"
+          - --predicate
+          - /tmp/policy-result.json
+          - --type
+          - "{{workflow.parameters.policy_predicate_type}}"
+          - --tlog-upload=false
+          - --registry-referrers-mode=legacy
+          - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
+          - --allow-http-registry={{workflow.parameters.registry_insecure}}
+          - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
+        env:
+          - name: COSIGN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "{{workflow.parameters.cosign_private_key_secret}}"
+                key: password
+                optional: true
+          - name: DOCKER_CONFIG
+            value: /home/nonroot/.docker
+        volumeMounts:
+          - name: cosign-private-key
+            mountPath: /cosign-private
+            readOnly: true
+          - name: registry-credentials
+            mountPath: /home/nonroot/.docker
+            readOnly: true
+
+    - name: verify-policy-attestation
+      inputs:
+        parameters:
+          - name: image_digest
+      container:
+        image: "{{workflow.parameters.cosign_image}}"
+        command: [cosign]
+        args:
+          - verify-attestation
+          - --key
+          - /cosign-public/cosign.pub
+          - --type
+          - "{{workflow.parameters.policy_predicate_type}}"
+          - --insecure-ignore-tlog
+          - --registry-referrers-mode=legacy
+          - --allow-insecure-registry={{workflow.parameters.registry_insecure}}
+          - --allow-http-registry={{workflow.parameters.registry_insecure}}
+          - "{{workflow.parameters.image_repository}}@{{inputs.parameters.image_digest}}"
+        env:
+          - name: DOCKER_CONFIG
+            value: /home/nonroot/.docker
+        volumeMounts:
+          - name: cosign-public-key
+            mountPath: /cosign-public
             readOnly: true
           - name: registry-credentials
             mountPath: /home/nonroot/.docker

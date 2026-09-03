@@ -60,7 +60,10 @@ type PreviewConfig struct {
 	IgnoreUnfixed           bool
 	TargetPlatform          string
 	CosignImage             string
+	CosignSigner            string
+	SigningProfile          string
 	CosignPrivateKeySecret  string
 	CosignPublicKeySecret   string
+	PolicyPredicateType     string
 	VEXConfigMap            string
 }

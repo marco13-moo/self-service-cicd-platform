@@ -36,6 +36,8 @@ type SourceRevision struct {
 	SBOMReference       string `json:"sbom_reference,omitempty"`
 	ProvenanceReference string `json:"provenance_reference,omitempty"`
 	VulnerabilityPolicy string `json:"vulnerability_policy,omitempty"`
+	SignatureReference  string `json:"signature_reference,omitempty"`
+	PolicyAttestation   string `json:"policy_attestation_reference,omitempty"`
 	DesiredPreviewURL   string `json:"desired_preview_url,omitempty"`
 	PreviewURL          string `json:"preview_url,omitempty"`
 
@@ -63,8 +65,11 @@ type PreviewDeployment struct {
 	IgnoreUnfixed           bool
 	TargetPlatform          string
 	CosignImage             string
+	CosignSigner            string
+	SigningProfile          string
 	CosignPrivateKeySecret  string
 	CosignPublicKeySecret   string
+	PolicyPredicateType     string
 	VEXConfigMap            string
 }
 

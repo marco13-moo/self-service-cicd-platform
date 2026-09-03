@@ -57,8 +57,9 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, PreviewRuntimeConfig{
 		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", RegistrySecretName: "registry-credentials",
 		ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", IgnoreUnfixed: true,
-		CosignImage: "cosign:test", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public",
-		TargetPlatform: "linux/amd64",
+		CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview", SigningProfile: "kms", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public",
+		PolicyPredicateType: "https://example.test/policy/v1",
+		TargetPlatform:      "linux/amd64",
 	}, zap.NewNop())
 	if processed, err := reconciler.ProcessOne(context.Background(), now); err != nil || !processed {
 		t.Fatalf("ensure: processed=%v err=%v", processed, err)
@@ -85,7 +86,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.SignatureReference == "" || env.Spec.Source.PolicyAttestation == "" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
 		t.Fatalf("successful workflow was not promoted: %#v", env.Spec.Source)
 	}
 	update := ensure

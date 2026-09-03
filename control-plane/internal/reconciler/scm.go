@@ -20,6 +20,7 @@ var (
 	commitSHA               = regexp.MustCompile(`^[a-fA-F0-9]{7,64}$`)
 	imageDigest             = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 	vulnerabilitySeverities = regexp.MustCompile(`^(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL)(,(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL))*$`)
+	kmsSigner               = regexp.MustCompile(`^(awskms|gcpkms|azurekms|hashivault)://`)
 )
 
 type SCMCommandReconciler struct {
@@ -44,8 +45,11 @@ type PreviewRuntimeConfig struct {
 	IgnoreUnfixed           bool
 	TargetPlatform          string
 	CosignImage             string
+	CosignSigner            string
+	SigningProfile          string
 	CosignPrivateKeySecret  string
 	CosignPublicKeySecret   string
+	PolicyPredicateType     string
 	VEXConfigMap            string
 }
 
@@ -97,7 +101,7 @@ func (r *SCMCommandReconciler) ObserveDeployments(ctx context.Context, observedA
 				phase, message = "Error", "deployment workflow succeeded without a valid image digest"
 			} else {
 				immutableImage := digestReference(env.Spec.Source.DesiredImage, digest)
-				evidence = api.DeploymentEvidence{ImageDigest: digest, DeployedImage: immutableImage, SBOMReference: immutableImage, ProvenanceReference: immutableImage, VulnerabilityPolicy: "passed"}
+				evidence = api.DeploymentEvidence{ImageDigest: digest, DeployedImage: immutableImage, SBOMReference: immutableImage, ProvenanceReference: immutableImage, VulnerabilityPolicy: "passed", SignatureReference: immutableImage, PolicyAttestation: immutableImage}
 			}
 		}
 		if _, err := r.store.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, phase, message, observedAt, evidence); err != nil {
@@ -165,7 +169,7 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 		}
 		deployedImage := ""
 		previewURL := ""
-		imageDigestValue, sbomReference, provenanceReference, vulnerabilityPolicy := "", "", "", ""
+		imageDigestValue, sbomReference, provenanceReference, vulnerabilityPolicy, signatureReference, policyAttestation := "", "", "", "", "", ""
 		if env.Spec.Source != nil {
 			deployedImage = env.Spec.Source.DeployedImage
 			previewURL = env.Spec.Source.PreviewURL
@@ -173,6 +177,8 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			sbomReference = env.Spec.Source.SBOMReference
 			provenanceReference = env.Spec.Source.ProvenanceReference
 			vulnerabilityPolicy = env.Spec.Source.VulnerabilityPolicy
+			signatureReference = env.Spec.Source.SignatureReference
+			policyAttestation = env.Spec.Source.PolicyAttestation
 		}
 		env.Spec.Source = &orchestrator.SourceRevision{
 			Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL,
@@ -181,6 +187,7 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			DeployedImage: deployedImage, DesiredPreviewURL: deployment.PreviewURL, PreviewURL: previewURL,
 			ImageDigest: imageDigestValue, SBOMReference: sbomReference, ProvenanceReference: provenanceReference,
 			VulnerabilityPolicy: vulnerabilityPolicy,
+			SignatureReference:  signatureReference, PolicyAttestation: policyAttestation,
 		}
 		ref, err := r.orchestrator.Deploy(ctx, env, deployment)
 		if err != nil {
@@ -221,8 +228,18 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 	if strings.TrimSpace(r.preview.ScannerImage) == "" {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_SCANNER_IMAGE is required for preview policy evaluation")
 	}
-	if strings.TrimSpace(r.preview.CosignImage) == "" || strings.TrimSpace(r.preview.CosignPrivateKeySecret) == "" || strings.TrimSpace(r.preview.CosignPublicKeySecret) == "" {
-		return orchestrator.PreviewDeployment{}, fmt.Errorf("Cosign image and private/public key Secrets are required for preview signature enforcement")
+	if strings.TrimSpace(r.preview.CosignImage) == "" || strings.TrimSpace(r.preview.CosignSigner) == "" || strings.TrimSpace(r.preview.CosignPublicKeySecret) == "" || strings.TrimSpace(r.preview.PolicyPredicateType) == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("Cosign image, signer, public-key Secret, and policy predicate type are required")
+	}
+	signingProfile := strings.ToLower(strings.TrimSpace(r.preview.SigningProfile))
+	if signingProfile != "key" && signingProfile != "kms" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_SIGNING_PROFILE must be key or kms")
+	}
+	if signingProfile == "key" && strings.TrimSpace(r.preview.CosignPrivateKeySecret) == "" {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_COSIGN_PRIVATE_KEY_SECRET is required for the key signing profile")
+	}
+	if signingProfile == "kms" && !kmsSigner.MatchString(strings.TrimSpace(r.preview.CosignSigner)) {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_COSIGN_SIGNER must be a supported KMS URI for the kms signing profile")
 	}
 	severities := strings.ToUpper(strings.TrimSpace(r.preview.VulnerabilitySeverities))
 	if !vulnerabilitySeverities.MatchString(severities) {
@@ -271,8 +288,8 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		ScannerImage:     r.preview.ScannerImage, VulnerabilitySeverities: severities,
 		IgnoreUnfixed:  r.preview.IgnoreUnfixed,
 		TargetPlatform: platform,
-		CosignImage:    r.preview.CosignImage, CosignPrivateKeySecret: r.preview.CosignPrivateKeySecret,
-		CosignPublicKeySecret: r.preview.CosignPublicKeySecret, VEXConfigMap: r.preview.VEXConfigMap,
+		CosignImage:    r.preview.CosignImage, CosignSigner: r.preview.CosignSigner, SigningProfile: signingProfile, CosignPrivateKeySecret: r.preview.CosignPrivateKeySecret,
+		CosignPublicKeySecret: r.preview.CosignPublicKeySecret, PolicyPredicateType: r.preview.PolicyPredicateType, VEXConfigMap: r.preview.VEXConfigMap,
 	}, nil
 }
 

@@ -123,8 +123,11 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_VULNERABILITY_IGNORE_UNFIXED` | `true` | Ignore blocking findings that have no available fix |
 | `PREVIEW_TARGET_PLATFORM` | `linux/amd64` | OCI build and scan platform; use `linux/arm64` for ARM clusters |
 | `PREVIEW_COSIGN_IMAGE` | `ghcr.io/sigstore/cosign/cosign:v2.6.4` | Maintained Cosign 2 executor used for digest signing and Kyverno-compatible verification |
+| `PREVIEW_COSIGN_SIGNER` | `/cosign-private/cosign.key` | Cosign file or KMS signer URI; production uses workload-identity-authorized KMS |
+| `PREVIEW_SIGNING_PROFILE` | `key` | `key` for development or `kms` to require a supported KMS signer URI |
 | `PREVIEW_COSIGN_PRIVATE_KEY_SECRET` | `preview-cosign-private` | Argo Secret containing `cosign.key` and optional `password` |
 | `PREVIEW_COSIGN_PUBLIC_KEY_SECRET` | `preview-cosign-public` | Public-only Argo Secret containing `cosign.pub` |
+| `PREVIEW_POLICY_PREDICATE_TYPE` | `https://self-service-cicd.dev/attestations/vulnerability-policy/v1` | Versioned signed vulnerability-policy predicate type |
 | `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Optional governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
 | `DATABASE_URL` | unset | PostgreSQL connection URL for distributed command leasing; file queue is the fallback |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
@@ -132,6 +135,13 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 The fallback file-backed state repository is intentionally single-writer. The
 Kubernetes deployment mounts a `ReadWriteOnce` PVC; configure PostgreSQL before
 running multiple reconcilers.
+
+For production signing, copy
+[`preview-trust-config-example.yaml`](infra/k8s/preview-trust-config-example.yaml),
+replace its illustrative KMS URI, and bind the `argo-env-admin` ServiceAccount
+to the corresponding cloud workload identity. The ConfigMap contains only key
+identity and predicate metadata; cloud credentials and private key material do
+not belong in it.
 
 When `DATABASE_URL` is configured, delivery deduplication and command leasing use
 PostgreSQL transactions with `FOR UPDATE SKIP LOCKED`, permitting multiple
@@ -170,3 +180,5 @@ Digest-pinned deployment, OCI attestations, and vulnerability admission are
 specified in [`ADR 0013`](docs/adr/0013-digest-pinned-artifacts-attestations-and-vulnerability-policy.md).
 Cosign trust, admission enforcement, and expiring OpenVEX exceptions are
 specified in [`ADR 0014`](docs/adr/0014-signed-artifacts-admission-and-vex-governance.md).
+Production KMS identity, trust rotation, signed policy evidence, and registry
+retention are specified in [`ADR 0015`](docs/adr/0015-production-trust-and-evidence-lifecycle.md).

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: preview-trust
+  namespace: control-plane
+data:
+  signing-profile: kms
+  # Replace with the selected provider's non-secret KMS key identifier. The
+  # Argo ServiceAccount obtains authorization through workload identity.
+  cosign-signer: awskms:///alias/self-service-cicd-preview-signing
+  policy-predicate-type: https://self-service-cicd.dev/attestations/vulnerability-policy/v1

@@ -78,13 +78,13 @@ func TestObserveDeploymentRejectsStaleGenerationAndPromotesCurrentSHA(t *testing
 	immutableImage := "registry.test/app@sha256:" + strings.Repeat("a", 64)
 	updated, err = store.ObserveDeployment("pr-42", "deploy-new", 2, "Succeeded", "complete", time.Now(), DeploymentEvidence{
 		ImageDigest: "sha256:" + strings.Repeat("a", 64), DeployedImage: immutableImage,
-		SBOMReference: immutableImage, ProvenanceReference: immutableImage, VulnerabilityPolicy: "passed",
+		SBOMReference: immutableImage, ProvenanceReference: immutableImage, VulnerabilityPolicy: "passed", SignatureReference: immutableImage, PolicyAttestation: immutableImage,
 	})
 	if err != nil || !updated {
 		t.Fatalf("current observation: updated=%v err=%v", updated, err)
 	}
 	got, _ := store.GetEnvironment("pr-42")
-	if got.Spec.Source.DeployedSHA != "new-sha" || got.Spec.Source.DeployedImage != immutableImage || got.Spec.Source.ImageDigest == "" || got.Spec.Source.SBOMReference != immutableImage || got.Spec.Source.ProvenanceReference != immutableImage || got.Spec.Source.VulnerabilityPolicy != "passed" || got.Spec.Source.PreviewURL != "https://pr-42.example.test" || got.Spec.Source.DeploymentPhase != "Succeeded" || got.Spec.Source.ObservedAt == nil {
+	if got.Spec.Source.DeployedSHA != "new-sha" || got.Spec.Source.DeployedImage != immutableImage || got.Spec.Source.ImageDigest == "" || got.Spec.Source.SBOMReference != immutableImage || got.Spec.Source.ProvenanceReference != immutableImage || got.Spec.Source.VulnerabilityPolicy != "passed" || got.Spec.Source.SignatureReference != immutableImage || got.Spec.Source.PolicyAttestation != immutableImage || got.Spec.Source.PreviewURL != "https://pr-42.example.test" || got.Spec.Source.DeploymentPhase != "Succeeded" || got.Spec.Source.ObservedAt == nil {
 		t.Fatalf("current deployment was not promoted: %#v", got.Spec.Source)
 	}
 
