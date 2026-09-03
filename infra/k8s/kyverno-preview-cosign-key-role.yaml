@@ -6,7 +6,9 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["preview-cosign-public"]
+    # Candidate access is dormant outside the bounded overlap window; it avoids
+    # broad Secret enumeration while permitting zero-downtime trust rotation.
+    resourceNames: ["preview-cosign-public", "preview-cosign-public-candidate"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

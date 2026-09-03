@@ -1,0 +1,145 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: preview-evidence-reverification
+  namespace: argo
+spec:
+  schedule: "17 */6 * * *"
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 900
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 10
+  workflowSpec:
+    serviceAccountName: argo-env-admin
+    entrypoint: reverify
+    arguments:
+      parameters:
+        - name: cosign_image
+          value: ghcr.io/sigstore/cosign/cosign:v2.6.4
+        - name: policy_predicate_type
+          value: https://self-service-cicd.dev/attestations/vulnerability-policy/v1
+        - name: public_key_secret
+          value: preview-cosign-public
+        - name: registry_insecure
+          value: "false"
+        - name: deployment_selector
+          value: app.kubernetes.io/managed-by=self-service-cicd
+    templates:
+      - name: reverify
+        script:
+          image: bitnami/kubectl@sha256:e0fcb25c485a8ad0665d0dd4b4a67cefb6baee32b0e3b19f54f1b468c49c1ed5
+          command: [sh]
+          source: |
+            set -eu
+            run='{{workflow.uid}}'
+            failures=0
+            sequence=0
+            deployments=$(mktemp)
+            trap 'rm -f "$deployments"' EXIT
+            wait_for_job() {
+              verification_job=$1
+              attempts=0
+              while [ "$attempts" -lt 60 ]; do
+                complete=$(kubectl -n argo get job "$verification_job" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')
+                failed=$(kubectl -n argo get job "$verification_job" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')
+                [ "$complete" = True ] && return 0
+                [ "$failed" = True ] && return 1
+                attempts=$((attempts + 1))
+                sleep 5
+              done
+              return 1
+            }
+            kubectl get deployment -A \
+              -l '{{workflow.parameters.deployment_selector}}' \
+              -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.template.spec.containers[0].image}{"\n"}{end}' \
+              > "$deployments"
+            while read -r namespace deployment image; do
+              [ -n "$namespace" ] || continue
+              sequence=$((sequence + 1))
+              case "$image" in
+                *@sha256:*) ;;
+                *) reason='image-is-not-digest-pinned'; failures=$((failures + 1));;
+              esac
+              job="evidence-${run%%-*}-${sequence}"
+              job=$(printf '%.63s' "$job")
+              if [ "${reason:-}" = '' ]; then
+                kubectl -n argo apply -f - >/dev/null <<EOF
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: $job
+              labels:
+                platform.evidence-reverification-run: "$run"
+            spec:
+              backoffLimit: 0
+              template:
+                spec:
+                  restartPolicy: Never
+                  volumes:
+                    - name: public-key
+                      secret:
+                        secretName: '{{workflow.parameters.public_key_secret}}'
+                  containers:
+                    - name: cosign
+                      image: '{{workflow.parameters.cosign_image}}'
+                      command: [cosign]
+                      args: [verify, --key, /cosign/cosign.pub, --insecure-ignore-tlog, --allow-http-registry={{workflow.parameters.registry_insecure}}, --allow-insecure-registry={{workflow.parameters.registry_insecure}}, "$image"]
+                      volumeMounts:
+                        - name: public-key
+                          mountPath: /cosign
+                          readOnly: true
+            EOF
+                if ! wait_for_job "$job"; then
+                  reason='signature-verification-failed'
+                else
+                  kubectl -n argo delete job "$job" --wait=true >/dev/null
+                  job="${job}-att"
+                  job=$(printf '%.63s' "$job")
+                  kubectl -n argo apply -f - >/dev/null <<EOF
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: $job
+              labels:
+                platform.evidence-reverification-run: "$run"
+            spec:
+              backoffLimit: 0
+              template:
+                spec:
+                  restartPolicy: Never
+                  volumes:
+                    - name: public-key
+                      secret:
+                        secretName: '{{workflow.parameters.public_key_secret}}'
+                  containers:
+                    - name: cosign
+                      image: '{{workflow.parameters.cosign_image}}'
+                      command: [cosign]
+                      args: [verify-attestation, --key, /cosign/cosign.pub, --type, '{{workflow.parameters.policy_predicate_type}}', --insecure-ignore-tlog, --allow-http-registry={{workflow.parameters.registry_insecure}}, --allow-insecure-registry={{workflow.parameters.registry_insecure}}, "$image"]
+                      volumeMounts:
+                        - name: public-key
+                          mountPath: /cosign
+                          readOnly: true
+            EOF
+                  if ! wait_for_job "$job"; then
+                    reason='policy-attestation-verification-failed'
+                  fi
+                fi
+              fi
+              kubectl -n argo delete job "$job" --ignore-not-found --wait=false >/dev/null
+              if [ "${reason:-}" != '' ]; then
+                failures=$((failures + 1))
+                observed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                kubectl label namespace "$namespace" platform.preview-quarantine=true --overwrite
+                kubectl annotate namespace "$namespace" \
+                  platform.preview-quarantine-reason="$reason" \
+                  platform.preview-quarantine-observed-at="$observed" --overwrite
+                kubectl -n "$namespace" annotate deployment "$deployment" \
+                  platform.preview-quarantine-image="$image" --overwrite
+                kubectl -n "$namespace" patch deployment "$deployment" \
+                  --type=merge -p '{"spec":{"replicas":0}}'
+              fi
+              unset reason
+            done < "$deployments"
+            test "$failures" -eq 0

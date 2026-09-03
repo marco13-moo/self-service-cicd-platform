@@ -1,0 +1,34 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: vault-kms-rotation-conformance
+spec:
+  background: false
+  rules:
+    - name: verify-current-or-candidate
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.kms-conformance: enabled
+      verifyImages:
+        - imageReferences: ["self-service-cicd-registry:5000/*"]
+          failureAction: Enforce
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          imageRegistryCredentials:
+            allowInsecureRegistry: true
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public-conformance
+                    rekor:
+                      ignoreTlog: true
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public-candidate-conformance
+                    rekor:
+                      ignoreTlog: true

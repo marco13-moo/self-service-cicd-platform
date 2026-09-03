@@ -84,10 +84,10 @@ against restored subjects succeed.
 
 ## Follow-up
 
-- Add registry retention conformance and disaster-recovery automation.
+- Registry retention conformance, disaster-recovery automation, overlap-based
+  rotation, and quarantine are implemented by ADR 0016.
 - Migrate to Cosign 3 OCI 1.1 referrers and Kyverno ImageValidatingPolicy once
   the selected production registry passes compatibility tests.
-- Add periodic evidence re-verification and compromised-subject quarantine.
 
 ## Conformance evidence
 

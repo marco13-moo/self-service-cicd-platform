@@ -19,7 +19,9 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["preview-cosign-public-conformance"]
+    resourceNames:
+      - preview-cosign-public-conformance
+      - preview-cosign-public-candidate-conformance
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

@@ -1,0 +1,29 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: vault-kms-conformance
+spec:
+  background: false
+  rules:
+    - name: verify-conformance-image
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.kms-conformance: enabled
+      verifyImages:
+        - imageReferences: ["self-service-cicd-registry:5000/*"]
+          failureAction: Enforce
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          imageRegistryCredentials:
+            allowInsecureRegistry: true
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public-conformance
+                    rekor:
+                      ignoreTlog: true

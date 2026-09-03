@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: vault-kms-verify
+  name: registry-evidence-verify
   namespace: argo
 spec:
   backoffLimit: 0
@@ -13,7 +13,7 @@ spec:
           secret:
             secretName: preview-cosign-public-conformance
       containers:
-        - name: cosign
+        - name: signature
           image: ghcr.io/sigstore/cosign/cosign:v2.6.4
           command: [cosign]
           args:
@@ -23,7 +23,7 @@ spec:
             - --insecure-ignore-tlog
             - --allow-http-registry=true
             - --allow-insecure-registry=true
-            - KMS_TEST_IMAGE
+            - EVIDENCE_TEST_IMAGE
           volumeMounts:
             - name: public-key
               mountPath: /cosign
@@ -32,7 +32,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: vault-kms-verify-attestation
+  name: registry-evidence-verify-attestation
   namespace: argo
 spec:
   backoffLimit: 0
@@ -44,7 +44,7 @@ spec:
           secret:
             secretName: preview-cosign-public-conformance
       containers:
-        - name: cosign
+        - name: policy-attestation
           image: ghcr.io/sigstore/cosign/cosign:v2.6.4
           command: [cosign]
           args:
@@ -56,8 +56,38 @@ spec:
             - --insecure-ignore-tlog
             - --allow-http-registry=true
             - --allow-insecure-registry=true
-            - KMS_TEST_IMAGE
+            - EVIDENCE_TEST_IMAGE
           volumeMounts:
             - name: public-key
               mountPath: /cosign
               readOnly: true
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: registry-evidence-recovery-conformance
+spec:
+  background: false
+  rules:
+    - name: verify-recovered-evidence
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.evidence-recovery-conformance: enabled
+      verifyImages:
+        - imageReferences: ["EVIDENCE_REGISTRY_PATTERN"]
+          failureAction: Enforce
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          imageRegistryCredentials:
+            allowInsecureRegistry: true
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public-conformance
+                    rekor:
+                      ignoreTlog: true

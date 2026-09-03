@@ -31,6 +31,11 @@ registry-returned digest. PostgreSQL-backed distributed command leasing, durable
 TTL enforcement, and generation-safe publication of deployed revisions, images,
 attestation subjects, and URLs are implemented.
 
+ADR 0016 closes the artifact-evidence lifecycle with recursive registry backup
+and restore conformance, garbage-collection survival checks, overlap-based KMS
+key rotation, scheduled signature and policy-attestation re-verification, and
+automatic quarantine of unverifiable preview workloads.
+
 ## Architecture
 
 ```text
@@ -157,6 +162,35 @@ admission, and revocation. Remove its isolated resources with
 Provider status and evidence requirements are documented in
 [`kms-provider-certification.md`](docs/kms-provider-certification.md).
 
+Exercise the complete evidence lifecycle against a BuildKit-produced, signed
+digest containing SPDX and SLSA attestations:
+
+```bash
+EVIDENCE_TEST_IMAGE=registry.example.test/previews/service@sha256:... \
+  ./scripts/validate-registry-evidence-lifecycle.sh
+```
+
+The harness uses two disposable registries: primary-to-backup recursive copy,
+garbage collection in the backup, then restoration into an independently empty
+registry. It validates the recovered SBOM, provenance, signature, signed policy
+attestation, and server-side admission decision. It never garbage-collects the
+primary registry.
+
+Validate overlap-first Vault/OpenBao rotation with:
+
+```bash
+ROTATION_TEST_IMAGE=registry.example.test/previews/service@sha256:... \
+  ./scripts/rotate-vault-signing-key.sh
+```
+
+Install [`evidence-reverification.yaml`](argo/cronworkflows/evidence-reverification.yaml)
+to re-verify managed Deployments every six hours. Verification failures annotate
+and label the namespace, then patch the affected Deployment to zero replicas.
+The workflow intentionally exits unsuccessfully after containment so operations
+alerting cannot mistake quarantine for a healthy run.
+The isolated quarantine contract can be replayed with
+[`validate-evidence-reverification.sh`](scripts/validate-evidence-reverification.sh).
+
 When `DATABASE_URL` is configured, delivery deduplication and command leasing use
 PostgreSQL transactions with `FOR UPDATE SKIP LOCKED`, permitting multiple
 reconcilers. The lifecycle smoke harness is
@@ -196,3 +230,8 @@ Cosign trust, admission enforcement, and expiring OpenVEX exceptions are
 specified in [`ADR 0014`](docs/adr/0014-signed-artifacts-admission-and-vex-governance.md).
 Production KMS identity, trust rotation, signed policy evidence, and registry
 retention are specified in [`ADR 0015`](docs/adr/0015-production-trust-and-evidence-lifecycle.md).
+Evidence retention, overlap-safe rotation, continuous re-verification,
+quarantine, and disaster recovery are specified in
+[`ADR 0016`](docs/adr/0016-evidence-retention-rotation-and-recovery.md).
+Operational execution and rollback are documented in the
+[`artifact evidence runbook`](docs/runbooks/artifact-evidence-operations.md).

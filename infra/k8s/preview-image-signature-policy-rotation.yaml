@@ -1,0 +1,40 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-preview-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify preview image signatures during rotation
+    policies.kyverno.io/description: >-
+      Admit a digest-pinned preview image when either the current or candidate
+      trust root verifies it. Remove the candidate entry only after promotion.
+spec:
+  background: true
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 30
+  rules:
+    - name: verify-preview-image
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaceSelector:
+                matchLabels:
+                  platform.preview-signature-policy: enforced
+      verifyImages:
+        - imageReferences: ["*"]
+          failureAction: Enforce
+          mutateDigest: false
+          required: true
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public
+                    rekor:
+                      ignoreTlog: true
+                - keys:
+                    publicKeys: k8s://argo/preview-cosign-public-candidate
+                    rekor:
+                      ignoreTlog: true

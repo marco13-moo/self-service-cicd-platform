@@ -20,6 +20,7 @@ kubectl apply -f "$job_manifest"
 kubectl -n argo wait --for=condition=complete job/vault-kms-sign --timeout=5m
 kubectl -n argo wait --for=condition=complete job/vault-kms-attest --timeout=5m
 kubectl apply -f "$verify_manifest"
+kubectl apply -f "$repo_root/infra/k8s/vault-kms-policy.yaml"
 kubectl -n argo wait --for=condition=complete job/vault-kms-verify --timeout=5m
 kubectl -n argo wait --for=condition=complete job/vault-kms-verify-attestation --timeout=5m
 
