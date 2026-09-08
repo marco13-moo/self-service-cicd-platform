@@ -141,6 +141,52 @@ func (s *ServiceStore) EnsureTenants(ctx context.Context, tenantIDs []TenantID) 
 	return tx.Commit()
 }
 
+// GetTenantAuthConfig reads the tenant_auths row for a tenant and returns the
+// raw JSON object as-is. Returns sql.ErrNoRows if not configured.
+func (s *ServiceStore) GetTenantAuthConfig(ctx context.Context, tenantID TenantID) (map[string]interface{}, error) {
+	if s.db == nil {
+		return nil, sql.ErrNoRows
+	}
+	tx, err := beginTenantTx(ctx, s.db, tenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, `SELECT config FROM tenant_auths WHERE tenant_id=$1`, tenantID).Scan(&raw); err != nil {
+		return nil, err
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// PutTenantAuthConfig writes the tenant_auths row for a tenant. Upserts the
+// JSON payload into the config column.
+func (s *ServiceStore) PutTenantAuthConfig(ctx context.Context, tenantID TenantID, payload interface{}) error {
+	if s.db == nil {
+		return nil
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_auths(tenant_id,config) VALUES($1,$2) ON CONFLICT (tenant_id) DO UPDATE SET config=$2,updated_at=now()`, tenantID, b); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 type persistedState struct {
 	Services               map[string]Service                   `json:"services"`
 	Environments           map[string]*orchestrator.Environment `json:"environments"`
