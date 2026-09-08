@@ -21,17 +21,19 @@ var ErrEnvironmentNotFound = errors.New("environment not found")
 var ErrServiceNotFound = errors.New("service not found")
 var ErrCommandNotFound = errors.New("SCM command not found")
 var ErrVersionConflict = errors.New("state version conflict")
+var ErrTenantScope = errors.New("tenant scope mismatch")
 
 // ServiceStore is a concurrency-safe repository for control-plane intent and
 // immutable workflow references. When path is non-empty, mutations are durable.
 type ServiceStore struct {
-	mu            sync.RWMutex
+	mu            *sync.RWMutex
 	path          string
 	services      map[string]Service
 	environments  map[string]*orchestrator.Environment
 	scmDeliveries map[string]time.Time
 	scmCommands   []scm.LifecycleCommand
 	db            *sql.DB
+	tenantID      TenantID
 }
 
 // NewPostgresServiceStore makes PostgreSQL authoritative for service and
@@ -68,6 +70,9 @@ func ImportPersistentState(ctx context.Context, db *sql.DB, path string) (int, i
 		return 0, 0, fmt.Errorf("begin state import: %w", err)
 	}
 	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT set_config('app.tenant_id',$1,true),set_config('app.bypass_rls','off',true)`, string(DefaultTenantID)); err != nil {
+		return 0, 0, fmt.Errorf("bind import tenant: %w", err)
+	}
 	// Serialize the emptiness check and import with migrations and any competing
 	// importer. Normal writers cannot exist during the documented stopped-writer
 	// cutover; the lock makes accidental duplicate importers deterministic.
@@ -82,6 +87,7 @@ func ImportPersistentState(ctx context.Context, db *sql.DB, path string) (int, i
 		return 0, 0, errors.New("PostgreSQL target already contains service or environment state")
 	}
 	for _, service := range services {
+		service.TenantID = DefaultTenantID
 		service.Version = 1
 		document, marshalErr := json.Marshal(service)
 		if marshalErr != nil {
@@ -92,6 +98,7 @@ func ImportPersistentState(ctx context.Context, db *sql.DB, path string) (int, i
 		}
 	}
 	for _, environment := range environments {
+		environment.TenantID = string(DefaultTenantID)
 		environment.Version = 1
 		document, marshalErr := json.Marshal(environment)
 		if marshalErr != nil {
@@ -112,6 +119,26 @@ func (s *ServiceStore) Ready(ctx context.Context) error {
 		return nil
 	}
 	return s.db.PingContext(ctx)
+}
+
+func (s *ServiceStore) EnsureTenants(ctx context.Context, tenantIDs []TenantID) error {
+	if s.db == nil {
+		return nil
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, tenantID := range tenantIDs {
+		if !validTenantID(tenantID) {
+			return fmt.Errorf("invalid tenant %q", tenantID)
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO tenants(id) VALUES($1) ON CONFLICT DO NOTHING`, tenantID); err != nil {
+			return fmt.Errorf("ensure tenant %q: %w", tenantID, err)
+		}
+	}
+	return tx.Commit()
 }
 
 type persistedState struct {
@@ -136,11 +163,30 @@ type legacyGitHubCommand struct {
 
 func NewServiceStore() *ServiceStore {
 	return &ServiceStore{
+		mu:            &sync.RWMutex{},
 		services:      make(map[string]Service),
 		environments:  make(map[string]*orchestrator.Environment),
 		scmDeliveries: make(map[string]time.Time),
 		scmCommands:   make([]scm.LifecycleCommand, 0),
+		tenantID:      DefaultTenantID,
 	}
+}
+
+// ForTenant returns a lightweight repository capability constrained to one
+// tenant while sharing the underlying pool or concurrency-safe file state.
+func (s *ServiceStore) ForTenant(tenantID TenantID) *ServiceStore {
+	tenantID = normalizeTenantID(tenantID)
+	if !validTenantID(tenantID) {
+		panic("invalid tenant repository scope")
+	}
+	return &ServiceStore{mu: s.mu, path: s.path, services: s.services, environments: s.environments, scmDeliveries: s.scmDeliveries, scmCommands: s.scmCommands, db: s.db, tenantID: tenantID}
+}
+
+func (s *ServiceStore) stateKey(name string) string {
+	if s.tenantID == "" || s.tenantID == DefaultTenantID {
+		return name
+	}
+	return string(s.tenantID) + "\x1f" + name
 }
 
 // NewPersistentServiceStore loads existing state. Malformed state is rejected
@@ -192,13 +238,15 @@ func (s *ServiceStore) Put(service Service) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.services[service.Name]
-	s.services[service.Name] = service
+	service.TenantID = s.tenantID
+	key := s.stateKey(service.Name)
+	previous, existed := s.services[key]
+	s.services[key] = service
 	if err := s.persistLocked(); err != nil {
 		if existed {
 			s.services[service.Name] = previous
 		} else {
-			delete(s.services, service.Name)
+			delete(s.services, key)
 		}
 		return err
 	}
@@ -211,7 +259,7 @@ func (s *ServiceStore) Get(name string) (Service, error) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	svc, ok := s.services[name]
+	svc, ok := s.services[s.stateKey(name)]
 	if !ok {
 		return Service{}, ErrServiceNotFound
 	}
@@ -226,6 +274,9 @@ func (s *ServiceStore) List() []Service {
 	defer s.mu.RUnlock()
 	out := make([]Service, 0, len(s.services))
 	for _, svc := range s.services {
+		if normalizeTenantID(svc.TenantID) != normalizeTenantID(s.tenantID) {
+			continue
+		}
 		out = append(out, svc)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -244,11 +295,52 @@ func (s *ServiceStore) FindServiceByRepository(repository string) (Service, erro
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, service := range s.services {
+		if normalizeTenantID(service.TenantID) != normalizeTenantID(s.tenantID) {
+			continue
+		}
 		if serviceMatchesRepository(service, repository) {
 			return service, nil
 		}
 	}
 	return Service{}, ErrServiceNotFound
+}
+
+// ResolveTenantForRepository is the narrow ingress lookup used after a webhook
+// signature has been verified. Repository ownership is globally unique, so the
+// lookup reveals only the tenant capability required to persist that delivery.
+func (s *ServiceStore) ResolveTenantForRepository(repository string) (TenantID, error) {
+	if s.db != nil {
+		tx, err := beginTenantTx(context.Background(), s.db, DefaultTenantID, true)
+		if err != nil {
+			return "", err
+		}
+		defer tx.Rollback()
+		rows, err := tx.Query(`SELECT tenant_id,document FROM services`)
+		if err != nil {
+			return "", err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var tenantID TenantID
+			var document []byte
+			var service Service
+			if err = rows.Scan(&tenantID, &document); err != nil {
+				return "", err
+			}
+			if json.Unmarshal(document, &service) == nil && serviceMatchesRepository(service, repository) {
+				return tenantID, nil
+			}
+		}
+		return "", ErrServiceNotFound
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, service := range s.services {
+		if serviceMatchesRepository(service, repository) {
+			return normalizeTenantID(service.TenantID), nil
+		}
+	}
+	return "", ErrServiceNotFound
 }
 
 func serviceMatchesRepository(service Service, repository string) bool {
@@ -266,7 +358,9 @@ func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.environments[env.Spec.Name]
+	env.TenantID = string(s.tenantID)
+	key := s.stateKey(env.Spec.Name)
+	previous, existed := s.environments[key]
 	if existed && env.Version != previous.Version {
 		return ErrVersionConflict
 	}
@@ -274,12 +368,12 @@ func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
 		return ErrVersionConflict
 	}
 	env.Version++
-	s.environments[env.Spec.Name] = cloneEnvironment(env)
+	s.environments[key] = cloneEnvironment(env)
 	if err := s.persistLocked(); err != nil {
 		if existed {
-			s.environments[env.Spec.Name] = previous
+			s.environments[key] = previous
 		} else {
-			delete(s.environments, env.Spec.Name)
+			delete(s.environments, key)
 		}
 		env.Version--
 		return err
@@ -293,7 +387,7 @@ func (s *ServiceStore) GetEnvironment(name string) (*orchestrator.Environment, e
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	env, ok := s.environments[name]
+	env, ok := s.environments[s.stateKey(name)]
 	if !ok {
 		return nil, ErrEnvironmentNotFound
 	}
@@ -309,8 +403,10 @@ func (s *ServiceStore) ListEnvironments() []*orchestrator.Environment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	names := make([]string, 0, len(s.environments))
-	for name := range s.environments {
-		names = append(names, name)
+	for key, environment := range s.environments {
+		if normalizeTenantID(TenantID(environment.TenantID)) == normalizeTenantID(s.tenantID) {
+			names = append(names, key)
+		}
 	}
 	sort.Strings(names)
 	out := make([]*orchestrator.Environment, 0, len(names))
@@ -318,6 +414,39 @@ func (s *ServiceStore) ListEnvironments() []*orchestrator.Environment {
 		out = append(out, cloneEnvironment(s.environments[name]))
 	}
 	return out
+}
+
+// ListAllEnvironments is restricted to the internal reconciler capability; API
+// handlers must always use ListEnvironments on a tenant-scoped repository.
+func (s *ServiceStore) ListAllEnvironments() []*orchestrator.Environment {
+	if s.db == nil {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		out := make([]*orchestrator.Environment, 0, len(s.environments))
+		for _, environment := range s.environments {
+			out = append(out, cloneEnvironment(environment))
+		}
+		return out
+	}
+	tx, err := beginTenantTx(context.Background(), s.db, DefaultTenantID, true)
+	if err != nil {
+		return nil
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT document FROM environments ORDER BY tenant_id,name`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var environments []*orchestrator.Environment
+	for rows.Next() {
+		var document []byte
+		var environment orchestrator.Environment
+		if rows.Scan(&document) == nil && json.Unmarshal(document, &environment) == nil {
+			environments = append(environments, &environment)
+		}
+	}
+	return environments
 }
 
 type DeploymentEvidence struct {
@@ -339,7 +468,8 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	env, ok := s.environments[name]
+	key := s.stateKey(name)
+	env, ok := s.environments[key]
 	if !ok {
 		return false, ErrEnvironmentNotFound
 	}
@@ -368,7 +498,7 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 		source.PreviewURL = source.DesiredPreviewURL
 	}
 	if err := s.persistLocked(); err != nil {
-		s.environments[name] = previous
+		s.environments[key] = previous
 		return false, err
 	}
 	return true, nil
@@ -411,7 +541,12 @@ func cloneEnvironment(env *orchestrator.Environment) *orchestrator.Environment {
 
 func (s *ServiceStore) DeleteEnvironment(name string) error {
 	if s.db != nil {
-		result, err := s.db.Exec(`DELETE FROM environments WHERE name=$1`, name)
+		tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		result, err := tx.Exec(`DELETE FROM environments WHERE tenant_id=$1 AND name=$2`, s.tenantID, name)
 		if err != nil {
 			return err
 		}
@@ -419,17 +554,18 @@ func (s *ServiceStore) DeleteEnvironment(name string) error {
 		if rows == 0 {
 			return ErrEnvironmentNotFound
 		}
-		return nil
+		return tx.Commit()
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.environments[name]
+	key := s.stateKey(name)
+	previous, existed := s.environments[key]
 	if !existed {
 		return ErrEnvironmentNotFound
 	}
-	delete(s.environments, name)
+	delete(s.environments, key)
 	if err := s.persistLocked(); err != nil {
-		s.environments[name] = previous
+		s.environments[key] = previous
 		return err
 	}
 	return nil

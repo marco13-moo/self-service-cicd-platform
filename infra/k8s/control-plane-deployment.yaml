@@ -135,6 +135,12 @@ spec:
                   name: control-plane-database
                   key: url
                   optional: false
+            - name: TENANT_AUTH_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: control-plane-tenant-auth
+                  key: tokens.json
+                  optional: false
             - name: GITHUB_APP_ID
               valueFrom:
                 secretKeyRef:

@@ -12,6 +12,12 @@ import (
 )
 
 func (s *ServiceStore) putServicePostgres(service Service) error {
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	service.TenantID = normalizeTenantID(s.tenantID)
 	if service.Version == 0 {
 		service.Version = 1
 	}
@@ -19,7 +25,7 @@ func (s *ServiceStore) putServicePostgres(service Service) error {
 	if err != nil {
 		return fmt.Errorf("encode service: %w", err)
 	}
-	result, err := s.db.Exec(`INSERT INTO services(name,document,version) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, service.Name, document, service.Version)
+	result, err := tx.Exec(`INSERT INTO services(tenant_id,name,document,version) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, s.tenantID, service.Name, document, service.Version)
 	if err != nil {
 		return fmt.Errorf("persist service: %w", err)
 	}
@@ -27,12 +33,17 @@ func (s *ServiceStore) putServicePostgres(service Service) error {
 	if rows == 0 {
 		return ErrVersionConflict
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *ServiceStore) getServicePostgres(name string) (Service, error) {
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return Service{}, err
+	}
+	defer tx.Rollback()
 	var document []byte
-	if err := s.db.QueryRow(`SELECT document FROM services WHERE name=$1`, name).Scan(&document); err != nil {
+	if err := tx.QueryRow(`SELECT document FROM services WHERE tenant_id=$1 AND name=$2`, s.tenantID, name).Scan(&document); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Service{}, ErrServiceNotFound
 		}
@@ -42,11 +53,19 @@ func (s *ServiceStore) getServicePostgres(name string) (Service, error) {
 	if err := json.Unmarshal(document, &service); err != nil {
 		return Service{}, fmt.Errorf("decode service: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return Service{}, err
+	}
 	return service, nil
 }
 
 func (s *ServiceStore) listServicesPostgres() []Service {
-	rows, err := s.db.Query(`SELECT document FROM services ORDER BY name`)
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return nil
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT document FROM services WHERE tenant_id=$1 ORDER BY name`, s.tenantID)
 	if err != nil {
 		return nil
 	}
@@ -59,6 +78,10 @@ func (s *ServiceStore) listServicesPostgres() []Service {
 			services = append(services, service)
 		}
 	}
+	_ = rows.Close()
+	if tx.Commit() != nil {
+		return nil
+	}
 	return services
 }
 
@@ -66,7 +89,13 @@ func (s *ServiceStore) putEnvironmentPostgres(env *orchestrator.Environment) err
 	if env == nil {
 		return errors.New("environment is required")
 	}
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	next := cloneEnvironment(env)
+	next.TenantID = string(normalizeTenantID(s.tenantID))
 	next.Version++
 	document, err := json.Marshal(next)
 	if err != nil {
@@ -74,9 +103,9 @@ func (s *ServiceStore) putEnvironmentPostgres(env *orchestrator.Environment) err
 	}
 	var result sql.Result
 	if env.Version == 0 {
-		result, err = s.db.Exec(`INSERT INTO environments(name,document,version) VALUES($1,$2,1) ON CONFLICT DO NOTHING`, env.Spec.Name, document)
+		result, err = tx.Exec(`INSERT INTO environments(tenant_id,name,document,version) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING`, s.tenantID, env.Spec.Name, document)
 	} else {
-		result, err = s.db.Exec(`UPDATE environments SET document=$1,version=$2,updated_at=now() WHERE name=$3 AND version=$4`, document, next.Version, env.Spec.Name, env.Version)
+		result, err = tx.Exec(`UPDATE environments SET document=$1,version=$2,updated_at=now() WHERE tenant_id=$3 AND name=$4 AND version=$5`, document, next.Version, s.tenantID, env.Spec.Name, env.Version)
 	}
 	if err != nil {
 		return fmt.Errorf("persist environment: %w", err)
@@ -85,13 +114,22 @@ func (s *ServiceStore) putEnvironmentPostgres(env *orchestrator.Environment) err
 	if rows == 0 {
 		return ErrVersionConflict
 	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	env.TenantID = next.TenantID
 	env.Version = next.Version
 	return nil
 }
 
 func (s *ServiceStore) getEnvironmentPostgres(name string) (*orchestrator.Environment, error) {
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 	var document []byte
-	if err := s.db.QueryRow(`SELECT document FROM environments WHERE name=$1`, name).Scan(&document); err != nil {
+	if err := tx.QueryRow(`SELECT document FROM environments WHERE tenant_id=$1 AND name=$2`, s.tenantID, name).Scan(&document); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEnvironmentNotFound
 		}
@@ -101,11 +139,19 @@ func (s *ServiceStore) getEnvironmentPostgres(name string) (*orchestrator.Enviro
 	if err := json.Unmarshal(document, &env); err != nil {
 		return nil, fmt.Errorf("decode environment: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return &env, nil
 }
 
 func (s *ServiceStore) listEnvironmentsPostgres() []*orchestrator.Environment {
-	rows, err := s.db.Query(`SELECT document FROM environments ORDER BY name`)
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return nil
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT document FROM environments WHERE tenant_id=$1 ORDER BY name`, s.tenantID)
 	if err != nil {
 		return nil
 	}
@@ -118,18 +164,22 @@ func (s *ServiceStore) listEnvironmentsPostgres() []*orchestrator.Environment {
 			environments = append(environments, &env)
 		}
 	}
+	_ = rows.Close()
+	if tx.Commit() != nil {
+		return nil
+	}
 	return environments
 }
 
 func (s *ServiceStore) observeDeploymentPostgres(name, workflowName string, generation int64, phase, message string, observedAt time.Time, evidence DeploymentEvidence) (bool, error) {
-	tx, err := s.db.BeginTx(context.Background(), nil)
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 	var document []byte
 	var version int64
-	if err = tx.QueryRow(`SELECT document,version FROM environments WHERE name=$1 FOR UPDATE`, name).Scan(&document, &version); err != nil {
+	if err = tx.QueryRow(`SELECT document,version FROM environments WHERE tenant_id=$1 AND name=$2 FOR UPDATE`, s.tenantID, name).Scan(&document, &version); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, ErrEnvironmentNotFound
 		}
@@ -164,7 +214,7 @@ func (s *ServiceStore) observeDeploymentPostgres(name, workflowName string, gene
 	if err != nil {
 		return false, fmt.Errorf("encode environment: %w", err)
 	}
-	result, err := tx.Exec(`UPDATE environments SET document=$1,version=$2,updated_at=now() WHERE name=$3 AND version=$4`, updatedDocument, env.Version, name, version)
+	result, err := tx.Exec(`UPDATE environments SET document=$1,version=$2,updated_at=now() WHERE tenant_id=$3 AND name=$4 AND version=$5`, updatedDocument, env.Version, s.tenantID, name, version)
 	if err != nil {
 		return false, err
 	}

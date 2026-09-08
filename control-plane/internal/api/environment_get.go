@@ -18,7 +18,7 @@ func (h *Handlers) GetEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	env, err := h.store.GetEnvironment(envName)
+	env, err := h.scopedStore(r).GetEnvironment(envName)
 	if err != nil {
 		http.Error(w, "environment not found", http.StatusNotFound)
 		return

@@ -44,6 +44,9 @@ func (f *fakeEnvironmentOrchestrator) Ready(context.Context) error { return f.re
 
 func TestEnvironmentLifecycleRoutes(t *testing.T) {
 	store := NewServiceStore()
+	if err := store.Put(Service{Name: "checkout", TenantID: DefaultTenantID, Version: 1}); err != nil {
+		t.Fatal(err)
+	}
 	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, map[scm.Provider]scm.WebhookAdapter{scm.ProviderGitHub: githubscm.NewWebhookAdapter("test-secret")}, zap.NewNop())
 
 	create := httptest.NewRequest(http.MethodPost, "/api/v1/environments", bytes.NewBufferString(`{"name":"pr-42","service":"checkout","ttl":"1h"}`))

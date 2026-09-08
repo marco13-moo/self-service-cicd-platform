@@ -10,6 +10,7 @@ import (
 // Service is the authoritative domain entity managed by the control plane.
 // This is NOT a transport object.
 type Service struct {
+	TenantID    TenantID               `json:"tenant_id"`
 	ID          uuid.UUID              `json:"id"`
 	Name        string                 `json:"name"`
 	Owner       string                 `json:"owner"`
@@ -39,6 +40,7 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 		}
 	}
 	return Service{
+		TenantID:    DefaultTenantID,
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Owner:       req.Owner,

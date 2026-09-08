@@ -42,6 +42,10 @@ failure domain; environment writes use optimistic concurrency; startup
 migrations are transactionally serialized; and the control plane runs as three
 interchangeable, gracefully draining replicas.
 
+ADR 0018 introduces immutable tenant ownership, role-gated API middleware,
+tenant-scoped webhook and reconciliation state, composite PostgreSQL identities,
+and forced Row-Level Security verified through a non-superuser database role.
+
 ## Architecture
 
 ```text
@@ -145,6 +149,7 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_POLICY_PREDICATE_TYPE` | `https://self-service-cicd.dev/attestations/vulnerability-policy/v1` | Versioned signed vulnerability-policy predicate type |
 | `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Optional governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
 | `DATABASE_URL` | unset | PostgreSQL authority for all production state; required by the Kubernetes Deployment |
+| `TENANT_AUTH_TOKENS` | unset | Required Secret-backed JSON map of bearer tokens to `{subject,tenant_id,role}` principals |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
 The fallback file-backed repository is intentionally local and single-writer.
@@ -161,6 +166,12 @@ DATABASE_URL='postgres://...' go run ./cmd/state-migrate \
 The import refuses a non-empty target. See
 [`control-plane-ha.md`](docs/runbooks/control-plane-ha.md) for cutover, backup,
 restore, and failover acceptance criteria.
+
+For the bootstrap tenant credential shape, copy
+[`control-plane-tenant-auth-example.yaml`](infra/k8s/control-plane-tenant-auth-example.yaml),
+replace the illustrative token through a secret manager, and apply it without
+committing the rendered Secret. Production PostgreSQL API credentials must use
+a non-superuser role because superusers bypass Row-Level Security.
 
 For production signing, copy
 [`preview-trust-config-example.yaml`](infra/k8s/preview-trust-config-example.yaml),

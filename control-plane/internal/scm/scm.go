@@ -101,6 +101,7 @@ func ParseRepositoryIdentity(raw string) (RepositoryIdentity, error) {
 }
 
 type LifecycleCommand struct {
+	TenantID       string        `json:"tenant_id"`
 	ID             string        `json:"id"`
 	Provider       Provider      `json:"provider"`
 	DeliveryID     string        `json:"delivery_id"`

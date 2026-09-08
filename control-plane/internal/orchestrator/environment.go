@@ -97,6 +97,7 @@ type WorkflowReference struct {
 // Environment represents the control-plane view of an environment.
 // It contains intent + references, but no execution state.
 type Environment struct {
+	TenantID string `json:"tenant_id"`
 	// Version is the control-plane compare-and-set token. Callers must persist
 	// the version they read; repositories increment it after every mutation.
 	Version int64           `json:"version"`

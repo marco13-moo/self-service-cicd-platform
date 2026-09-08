@@ -85,7 +85,7 @@ func (r *SCMCommandReconciler) Run(ctx context.Context) {
 // late observation from an obsolete deployment harmless.
 func (r *SCMCommandReconciler) ObserveDeployments(ctx context.Context, observedAt time.Time) error {
 	var observationErrors []error
-	for _, env := range r.store.ListEnvironments() {
+	for _, env := range r.store.ListAllEnvironments() {
 		if env.Spec.Source == nil || env.DeployWorkflow == nil || deploymentTerminal(env.Spec.Source.DeploymentPhase) {
 			continue
 		}
@@ -108,7 +108,8 @@ func (r *SCMCommandReconciler) ObserveDeployments(ctx context.Context, observedA
 				evidence = api.DeploymentEvidence{ImageDigest: digest, DeployedImage: immutableImage, SBOMReference: immutableImage, ProvenanceReference: immutableImage, VulnerabilityPolicy: "passed", SignatureReference: immutableImage, PolicyAttestation: immutableImage}
 			}
 		}
-		if _, err := r.store.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, phase, message, observedAt, evidence); err != nil {
+		tenantStore := r.store.ForTenant(api.TenantID(env.TenantID))
+		if _, err := tenantStore.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, phase, message, observedAt, evidence); err != nil {
 			observationErrors = append(observationErrors, fmt.Errorf("persist deployment observation for %s: %w", env.Spec.Name, err))
 		}
 	}
@@ -129,21 +130,27 @@ func (r *SCMCommandReconciler) ProcessOne(ctx context.Context, now time.Time) (b
 	if err != nil {
 		return false, err
 	}
-	processingErr := r.reconcile(ctx, command)
-	if completeErr := r.commands.CompleteSCMCommand(command.ID, processingErr, now); completeErr != nil {
+	tenantID := api.TenantID(command.TenantID)
+	tenantStore := r.store.ForTenant(tenantID)
+	tenantCommands := r.commands
+	if scoped, ok := r.commands.(api.TenantScopedCommandStore); ok {
+		tenantCommands = scoped.CommandsForTenant(tenantID)
+	}
+	processingErr := r.reconcile(ctx, tenantStore, command)
+	if completeErr := tenantCommands.CompleteSCMCommand(command.ID, processingErr, now); completeErr != nil {
 		return true, fmt.Errorf("complete SCM command: %w", completeErr)
 	}
 	return true, processingErr
 }
 
-func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.LifecycleCommand) error {
-	service, err := r.store.FindServiceByRepository(command.Repository)
+func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.ServiceStore, command *scm.LifecycleCommand) error {
+	service, err := store.FindServiceByRepository(command.Repository)
 	if err != nil {
 		return fmt.Errorf("resolve registered service for %s: %w", command.Repository, err)
 	}
 	switch command.Type {
 	case scm.EnsurePreviewEnvironment:
-		env, err := r.store.GetEnvironment(command.Environment)
+		env, err := store.GetEnvironment(command.Environment)
 		if err != nil && !errors.Is(err, api.ErrEnvironmentNotFound) {
 			return err
 		}
@@ -154,7 +161,8 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			}
 			// Persist provisioning identity before deployment. If deployment
 			// submission fails, retrying must not submit another create workflow.
-			if err := r.store.PutEnvironment(env); err != nil {
+			env.TenantID = command.TenantID
+			if err := store.PutEnvironment(env); err != nil {
 				return err
 			}
 		}
@@ -198,9 +206,9 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			return err
 		}
 		env.DeployWorkflow = ref
-		return r.store.PutEnvironment(env)
+		return store.PutEnvironment(env)
 	case scm.DestroyPreviewEnvironment:
-		env, err := r.store.GetEnvironment(command.Environment)
+		env, err := store.GetEnvironment(command.Environment)
 		if errors.Is(err, api.ErrEnvironmentNotFound) {
 			return nil
 		}
@@ -215,7 +223,7 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, command *scm.Lifec
 			return err
 		}
 		env.DestroyWorkflow = ref
-		return r.store.PutEnvironment(env)
+		return store.PutEnvironment(env)
 	default:
 		return fmt.Errorf("unsupported lifecycle command %q", command.Type)
 	}

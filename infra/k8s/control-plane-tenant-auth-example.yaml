@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: control-plane-tenant-auth
+  namespace: control-plane
+type: Opaque
+stringData:
+  # Illustrative bootstrap credentials only. Generate high-entropy tokens in a
+  # secret manager and replace this static adapter with federated identity as
+  # the deployment matures. Never commit real bearer tokens.
+  tokens.json: |
+    {
+      "replace-with-secret-manager-token": {
+        "subject": "platform-bootstrap",
+        "tenant_id": "example-tenant",
+        "role": "admin"
+      }
+    }

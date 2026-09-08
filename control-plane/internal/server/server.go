@@ -111,6 +111,19 @@ func New(
 	//-----------------------------------------
 	// Router
 	//-----------------------------------------
+	tenantAuthorizer, err := api.NewTenantAuthorizer(cfg.TenantAuth.TokensJSON)
+	if err != nil {
+		if database != nil {
+			_ = database.Close()
+		}
+		return nil, fmt.Errorf("initialize tenant authorization: %w", err)
+	}
+	if err = store.EnsureTenants(context.Background(), tenantAuthorizer.TenantIDs()); err != nil {
+		if database != nil {
+			_ = database.Close()
+		}
+		return nil, fmt.Errorf("initialize tenant registry: %w", err)
+	}
 
 	handler := api.NewRouter(
 		store,
@@ -123,6 +136,7 @@ func New(
 			scm.ProviderBitbucket: bitbucketscm.NewWebhookAdapter(cfg.Bitbucket.WebhookSecret),
 		},
 		logger,
+		tenantAuthorizer,
 	)
 
 	//-----------------------------------------

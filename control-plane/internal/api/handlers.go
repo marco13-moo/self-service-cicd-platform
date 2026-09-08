@@ -29,6 +29,17 @@ type Handlers struct {
 	logger          *zap.Logger
 }
 
+func (h *Handlers) scopedStore(r *http.Request) *ServiceStore {
+	return h.store.ForTenant(tenantFromRequest(r))
+}
+
+func (h *Handlers) scopedCommands(r *http.Request) SCMCommandStore {
+	if scoped, ok := h.commandStore.(TenantScopedCommandStore); ok {
+		return scoped.CommandsForTenant(tenantFromRequest(r))
+	}
+	return h.commandStore
+}
+
 func NewHandlers(
 	store *ServiceStore,
 	commandStore SCMCommandStore,
@@ -119,7 +130,8 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	service := NewService(req, projectType, repository)
-	if err := h.store.Put(service); err != nil {
+	service.TenantID = tenantFromRequest(r)
+	if err := h.scopedStore(r).Put(service); err != nil {
 		h.logger.Error("failed to persist service", zap.Error(err))
 		http.Error(w, "failed to persist service", http.StatusInternalServerError)
 		return
@@ -136,8 +148,8 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(service)
 }
 
-func (h *Handlers) ListServices(w http.ResponseWriter, _ *http.Request) {
-	services := h.store.List()
+func (h *Handlers) ListServices(w http.ResponseWriter, r *http.Request) {
+	services := h.scopedStore(r).List()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -174,6 +186,11 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid ttl", http.StatusBadRequest)
 		return
 	}
+	store := h.scopedStore(r)
+	if _, err := store.Get(req.Service); err != nil {
+		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
 
 	h.logger.Info("submitting environment to orchestrator")
 
@@ -187,7 +204,8 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := h.store.PutEnvironment(env); err != nil {
+	env.TenantID = string(tenantFromRequest(r))
+	if err := store.PutEnvironment(env); err != nil {
 		h.logger.Error("environment submitted but reference persistence failed", zap.Error(err))
 		if errors.Is(err, ErrVersionConflict) {
 			http.Error(w, "environment changed concurrently; retry with fresh state", http.StatusConflict)
@@ -209,7 +227,8 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		ctx = context.Background()
 	}
 
-	env, err := h.store.GetEnvironment(name)
+	store := h.scopedStore(r)
+	env, err := store.GetEnvironment(name)
 	if err != nil {
 		h.logger.Error("environment not found", zap.Error(err))
 		http.Error(w, "environment not found", http.StatusNotFound)
@@ -227,7 +246,7 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env.DestroyWorkflow = destroyRef
-	if err := h.store.PutEnvironment(env); err != nil {
+	if err := store.PutEnvironment(env); err != nil {
 		h.logger.Error("destroy submitted but reference persistence failed", zap.Error(err))
 		if errors.Is(err, ErrVersionConflict) {
 			http.Error(w, "environment changed concurrently; retry with fresh state", http.StatusConflict)

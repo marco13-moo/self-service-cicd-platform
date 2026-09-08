@@ -39,8 +39,26 @@ func (h *Handlers) SCMWebhook(w http.ResponseWriter, r *http.Request) {
 	var command *scm.LifecycleCommand
 	if event != nil {
 		command = scm.CommandFromEvent(*event)
+	} else {
+		writeJSON(w, http.StatusAccepted, map[string]interface{}{"accepted": true, "duplicate": false, "command_created": false})
+		return
 	}
-	duplicate, err := h.commandStore.RecordSCMDelivery(provider, deliveryID, command, time.Now().UTC())
+	tenantID, err := h.store.ResolveTenantForRepository(event.Repository)
+	if errors.Is(err, ErrServiceNotFound) && h.store.db == nil {
+		// The in-memory development adapter predates tenant registration and is
+		// intentionally excluded from production composition.
+		tenantID, err = DefaultTenantID, nil
+	}
+	if err != nil {
+		http.Error(w, "webhook repository is not registered", http.StatusNotFound)
+		return
+	}
+	command.TenantID = string(tenantID)
+	commandStore := h.commandStore
+	if scoped, ok := commandStore.(TenantScopedCommandStore); ok {
+		commandStore = scoped.CommandsForTenant(tenantID)
+	}
+	duplicate, err := commandStore.RecordSCMDelivery(provider, deliveryID, command, time.Now().UTC())
 	if err != nil {
 		h.logger.Error("failed to persist SCM delivery", zap.String("provider", string(provider)), zap.String("delivery_id", deliveryID), zap.Error(err))
 		http.Error(w, "failed to persist webhook delivery", http.StatusInternalServerError)

@@ -27,6 +27,7 @@ func Load() *Config {
 		Bitbucket:  BitbucketConfig{WebhookSecret: os.Getenv("BITBUCKET_WEBHOOK_SECRET"), OAuthClientID: os.Getenv("BITBUCKET_OAUTH_CLIENT_ID"), OAuthClientSecret: os.Getenv("BITBUCKET_OAUTH_CLIENT_SECRET")},
 		Reconciler: ReconcilerConfig{PreviewTTL: getDurationEnv("PREVIEW_ENVIRONMENT_TTL", 2*time.Hour)},
 		Database:   DatabaseConfig{URL: os.Getenv("DATABASE_URL")},
+		TenantAuth: TenantAuthConfig{TokensJSON: os.Getenv("TENANT_AUTH_TOKENS")},
 		Preview: PreviewConfig{
 			ImageRepository:         os.Getenv("PREVIEW_IMAGE_REPOSITORY"),
 			BaseDomain:              os.Getenv("PREVIEW_BASE_DOMAIN"),

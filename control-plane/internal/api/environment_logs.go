@@ -10,7 +10,7 @@ import (
 // GetEnvironmentLogs returns stable execution-plane navigation metadata. The
 // control plane deliberately does not proxy potentially voluminous pod logs.
 func (h *Handlers) GetEnvironmentLogs(w http.ResponseWriter, r *http.Request) {
-	env, err := h.store.GetEnvironment(r.PathValue("name"))
+	env, err := h.scopedStore(r).GetEnvironment(r.PathValue("name"))
 	if err != nil {
 		http.Error(w, "environment not found", http.StatusNotFound)
 		return

@@ -8,6 +8,8 @@ recovery_port=${HA_RECOVERY_PORT:-56433}
 postgres_image=${HA_POSTGRES_IMAGE:-postgres:17.6-alpine}
 database=platform
 password=${HA_POSTGRES_PASSWORD:-ha-conformance-only}
+tenant_role=platform_app
+tenant_password=${HA_TENANT_DATABASE_PASSWORD:-tenant-conformance-only}
 dump_file=$(mktemp /tmp/self-service-cicd-postgres.XXXXXX.dump)
 legacy_file=$(mktemp /tmp/self-service-cicd-state.XXXXXX.json)
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -37,10 +39,16 @@ printf '%s\n' '{"services":{"import-proof":{"name":"import-proof","repo_url":"ht
   DATABASE_URL="$source_url" GOCACHE=/tmp/self-service-cicd-go-cache \
     go run ./cmd/state-migrate -state-path "$legacy_file"
 )
+docker exec "$source_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
+  -c "CREATE ROLE ${tenant_role} LOGIN PASSWORD '${tenant_password}'" \
+  -c "GRANT USAGE ON SCHEMA public TO ${tenant_role}" \
+  -c "GRANT SELECT ON schema_migrations TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands TO ${tenant_role}" >/dev/null
+source_tenant_url="postgres://${tenant_role}:${tenant_password}@127.0.0.1:${source_port}/${database}?sslmode=disable"
 (
   cd "$repository_root/control-plane"
-  TEST_DATABASE_URL="$source_url" GOCACHE=/tmp/self-service-cicd-go-cache \
-    go test ./internal/api -run 'TestPostgresAuthoritativeStateAndReplicaHandoff|TestConcurrentMigrationStartup' -count=1
+  TEST_DATABASE_URL="$source_url" TEST_TENANT_DATABASE_URL="$source_tenant_url" GOCACHE=/tmp/self-service-cicd-go-cache \
+    go test ./internal/api -run 'TestPostgresAuthoritativeStateAndReplicaHandoff|TestConcurrentMigrationStartup|TestPostgresRowLevelTenantIsolation' -count=1
   TEST_DATABASE_URL="$source_url" GOCACHE=/tmp/self-service-cicd-go-cache \
     go test ./internal/reconciler -run TestPostgresReconciliationContinuesAfterReplicaTermination -count=1
 )
@@ -55,7 +63,13 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
+docker exec "$recovery_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
+  -c "CREATE ROLE ${tenant_role} LOGIN PASSWORD '${tenant_password}'" >/dev/null
 docker exec -i "$recovery_container" pg_restore -U postgres -d "$database" --clean --if-exists <"$dump_file"
+docker exec "$recovery_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
+  -c "GRANT USAGE ON SCHEMA public TO ${tenant_role}" \
+  -c "GRANT SELECT ON schema_migrations TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands TO ${tenant_role}" >/dev/null
 restored_services=$(docker exec "$recovery_container" psql -U postgres -d "$database" -Atc "SELECT count(*) FROM services WHERE name='import-proof'")
 restored_environments=$(docker exec "$recovery_container" psql -U postgres -d "$database" -Atc "SELECT count(*) FROM environments WHERE name='import-proof-pr-1'")
 if [ "$restored_services" != 1 ] || [ "$restored_environments" != 1 ]; then
@@ -64,10 +78,11 @@ if [ "$restored_services" != 1 ] || [ "$restored_environments" != 1 ]; then
 fi
 
 recovery_url="postgres://postgres:${password}@127.0.0.1:${recovery_port}/${database}?sslmode=disable"
+recovery_tenant_url="postgres://${tenant_role}:${tenant_password}@127.0.0.1:${recovery_port}/${database}?sslmode=disable"
 (
   cd "$repository_root/control-plane"
-  TEST_DATABASE_URL="$recovery_url" GOCACHE=/tmp/self-service-cicd-go-cache \
-    go test ./internal/api -run 'TestPostgresAuthoritativeStateAndReplicaHandoff|TestConcurrentMigrationStartup' -count=1
+  TEST_DATABASE_URL="$recovery_url" TEST_TENANT_DATABASE_URL="$recovery_tenant_url" GOCACHE=/tmp/self-service-cicd-go-cache \
+    go test ./internal/api -run 'TestPostgresAuthoritativeStateAndReplicaHandoff|TestConcurrentMigrationStartup|TestPostgresRowLevelTenantIsolation' -count=1
   TEST_DATABASE_URL="$recovery_url" GOCACHE=/tmp/self-service-cicd-go-cache \
     go test ./internal/reconciler -run TestPostgresReconciliationContinuesAfterReplicaTermination -count=1
 )
