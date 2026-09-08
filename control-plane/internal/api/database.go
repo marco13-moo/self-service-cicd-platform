@@ -82,6 +82,14 @@ CREATE POLICY scm_deliveries_tenant_isolation ON scm_deliveries USING (current_s
 DROP POLICY IF EXISTS scm_commands_tenant_isolation ON scm_commands;
 CREATE POLICY scm_commands_tenant_isolation ON scm_commands USING (current_setting('app.bypass_rls',true)='on' OR tenant_id=current_setting('app.tenant_id',true)) WITH CHECK (current_setting('app.bypass_rls',true)='on' OR tenant_id=current_setting('app.tenant_id',true));
 `},
+	{version: 4, sql: `
+-- Tenant-auth configuration persisted per-tenant.
+CREATE TABLE IF NOT EXISTS tenant_auths (
+  tenant_id TEXT PRIMARY KEY REFERENCES tenants(id),
+  config JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`},
 }
 
 // migrateDatabase serializes schema evolution across concurrently starting
