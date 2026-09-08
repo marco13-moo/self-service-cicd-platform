@@ -6,13 +6,14 @@ metadata:
 type: Opaque
 stringData:
   # Illustrative bootstrap credentials only. Generate high-entropy tokens in a
-  # secret manager and replace this static adapter with federated identity as
-  # the deployment matures. Never commit real bearer tokens.
+  # secret manager and remove ordinary static credentials after OIDC cutover.
+  # Never commit real bearer tokens.
   tokens.json: |
     {
       "replace-with-secret-manager-token": {
         "subject": "platform-bootstrap",
-        "tenant_id": "example-tenant",
-        "role": "admin"
+        "tenant_id": "default",
+        "role": "admin",
+        "platform_admin": true
       }
     }

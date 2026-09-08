@@ -140,7 +140,9 @@ spec:
                 secretKeyRef:
                   name: control-plane-tenant-auth
                   key: tokens.json
-                  optional: false
+                  # Optional after tenant OIDC providers are persisted. Retain
+                  # only a separately governed break-glass token in production.
+                  optional: true
             - name: GITHUB_APP_ID
               valueFrom:
                 secretKeyRef:

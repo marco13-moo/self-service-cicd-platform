@@ -79,3 +79,39 @@ func TestTenantAuthorizationAndAPIIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestTenantAdministrationRequiresExplicitPlatformCapability(t *testing.T) {
+	authorizer, err := NewTenantAuthorizer(`{
+      "tenant-admin":{"subject":"alice","tenant_id":"alpha","role":"admin"},
+      "platform-admin":{"subject":"operator","tenant_id":"default","role":"admin","platform_admin":true}
+    }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewServiceStore()
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, nil, zap.NewNop(), authorizer)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tenants", bytes.NewBufferString(`{"tenant_id":"beta"}`))
+	request.Header.Set("Authorization", "Bearer tenant-admin")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("tenant administrator acquired a platform capability: %d", response.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/tenants", bytes.NewBufferString(`{"tenant_id":"beta"}`))
+	request.Header.Set("Authorization", "Bearer platform-admin")
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("platform capability did not reach the PostgreSQL lifecycle boundary: %d", response.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/tenants/beta/auth", bytes.NewBufferString(`{}`))
+	request.Header.Set("Authorization", "Bearer platform-admin")
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("obsolete cross-tenant authentication route remained exposed: %d", response.Code)
+	}
+}

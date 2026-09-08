@@ -24,9 +24,10 @@ const (
 )
 
 type Principal struct {
-	Subject  string     `json:"subject"`
-	TenantID TenantID   `json:"tenant_id"`
-	Role     TenantRole `json:"role"`
+	Subject       string     `json:"subject"`
+	TenantID      TenantID   `json:"tenant_id"`
+	Role          TenantRole `json:"role"`
+	PlatformAdmin bool       `json:"platform_admin,omitempty"`
 }
 
 type principalContextKey struct{}
@@ -38,6 +39,14 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 
 type TenantAuthorizer struct {
 	tokens map[[sha256.Size]byte]Principal
+}
+
+type RequestAuthorizer interface {
+	Require(minimum TenantRole, next http.Handler) http.Handler
+}
+
+func NewEmptyTenantAuthorizer() *TenantAuthorizer {
+	return &TenantAuthorizer{tokens: map[[sha256.Size]byte]Principal{}}
 }
 
 // NewTenantAuthorizer parses a JSON object whose keys are opaque bearer tokens
@@ -55,6 +64,9 @@ func NewTenantAuthorizer(raw string) (*TenantAuthorizer, error) {
 		if strings.TrimSpace(token) == "" || !validTenantID(principal.TenantID) || strings.TrimSpace(principal.Subject) == "" || roleRank(principal.Role) == 0 {
 			return nil, errors.New("TENANT_AUTH_TOKENS contains an invalid token or principal")
 		}
+		if principal.PlatformAdmin && (principal.Role != TenantAdmin || principal.TenantID != DefaultTenantID) {
+			return nil, errors.New("platform_admin requires the default tenant admin role")
+		}
 		authorizer.tokens[sha256.Sum256([]byte(token))] = principal
 	}
 	return authorizer, nil
@@ -67,14 +79,7 @@ func (a *TenantAuthorizer) Require(minimum TenantRole, next http.Handler) http.H
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		providedHash := sha256.Sum256([]byte(provided))
-		var principal Principal
-		matched := false
-		for tokenHash, candidate := range a.tokens {
-			if subtle.ConstantTimeCompare(providedHash[:], tokenHash[:]) == 1 {
-				principal, matched = candidate, true
-			}
-		}
+		principal, matched := a.Authenticate(provided)
 		if !matched {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -85,6 +90,21 @@ func (a *TenantAuthorizer) Require(minimum TenantRole, next http.Handler) http.H
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal)))
 	})
+}
+
+func (a *TenantAuthorizer) Authenticate(provided string) (Principal, bool) {
+	if a == nil {
+		return Principal{}, false
+	}
+	providedHash := sha256.Sum256([]byte(provided))
+	var principal Principal
+	matched := false
+	for tokenHash, candidate := range a.tokens {
+		if subtle.ConstantTimeCompare(providedHash[:], tokenHash[:]) == 1 {
+			principal, matched = candidate, true
+		}
+	}
+	return principal, matched
 }
 
 func (a *TenantAuthorizer) TenantIDs() []TenantID {

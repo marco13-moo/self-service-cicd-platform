@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/util/validation"
 
@@ -38,6 +39,23 @@ func (h *Handlers) scopedCommands(r *http.Request) SCMCommandStore {
 		return scoped.CommandsForTenant(tenantFromRequest(r))
 	}
 	return h.commandStore
+}
+
+func (h *Handlers) audit(r *http.Request, eventType, resourceType, resourceName, outcome string, metadata map[string]any) {
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		return
+	}
+	correlationID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+	if correlationID == "" {
+		correlationID = uuid.NewString()
+	}
+	if err := h.store.ForTenant(principal.TenantID).AppendAuditEvent(r.Context(), AuditEvent{
+		TenantID: principal.TenantID, CorrelationID: correlationID, Actor: principal.Subject,
+		EventType: eventType, ResourceType: resourceType, ResourceName: resourceName, Outcome: outcome, Metadata: metadata,
+	}); err != nil {
+		h.logger.Error("failed to append audit event", zap.Error(err), zap.String("event_type", eventType))
+	}
 }
 
 func NewHandlers(
@@ -136,6 +154,7 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist service", http.StatusInternalServerError)
 		return
 	}
+	h.audit(r, "service.registered", "service", service.Name, "succeeded", map[string]any{"repository": service.Repository.Canonical()})
 
 	h.logger.Info("service registered",
 		zap.String("service_id", service.ID.String()),
@@ -216,6 +235,7 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "environment submitted but state persistence failed", http.StatusInternalServerError)
 		return
 	}
+	h.audit(r, "environment.created", "environment", env.Spec.Name, "succeeded", map[string]any{"namespace": env.Spec.Namespace})
 
 	h.logger.Info("environment creation accepted")
 	writeJSON(w, http.StatusAccepted, env)
@@ -258,6 +278,7 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "destroy submitted but state persistence failed", http.StatusInternalServerError)
 		return
 	}
+	h.audit(r, "environment.destroy.requested", "environment", name, "succeeded", map[string]any{"namespace": env.Spec.Namespace})
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{"environment": name, "destroy_workflow": destroyRef})
 }
 

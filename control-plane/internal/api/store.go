@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
@@ -147,6 +148,9 @@ func (s *ServiceStore) GetTenantAuthConfig(ctx context.Context, tenantID TenantI
 	if s.db == nil {
 		return nil, sql.ErrNoRows
 	}
+	if normalizeTenantID(s.tenantID) != normalizeTenantID(tenantID) {
+		return nil, ErrTenantScope
+	}
 	tx, err := beginTenantTx(ctx, s.db, tenantID, false)
 	if err != nil {
 		return nil, err
@@ -170,18 +174,292 @@ func (s *ServiceStore) GetTenantAuthConfig(ctx context.Context, tenantID TenantI
 // JSON payload into the config column.
 func (s *ServiceStore) PutTenantAuthConfig(ctx context.Context, tenantID TenantID, payload interface{}) error {
 	if s.db == nil {
+		return errors.New("tenant OIDC configuration requires PostgreSQL")
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if normalizeTenantID(s.tenantID) != normalizeTenantID(tenantID) {
+		return ErrTenantScope
+	}
+	var typed TenantAuthConfigPayload
+	if err := json.Unmarshal(b, &typed); err != nil {
+		return err
+	}
+	tx, err := beginTenantTx(ctx, s.db, tenantID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, provider := range typed.Providers {
+		var collision bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tenant_auths WHERE tenant_id<>$1 AND config @> jsonb_build_object('providers',jsonb_build_array(jsonb_build_object('issuer',$2::text))))`, tenantID, provider.Issuer).Scan(&collision); err != nil {
+			return err
+		}
+		if collision {
+			return errors.New("OIDC issuer is already assigned to another tenant")
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_auths(tenant_id,config) VALUES($1,$2) ON CONFLICT (tenant_id) DO UPDATE SET config=$2,updated_at=now()`, tenantID, b); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ResolveTenantAuthByIssuer performs the only privileged tenant-auth lookup.
+// The issuer is treated solely as a selector; cryptographic validation binds
+// the returned provider and tenant before a Principal is constructed.
+func (s *ServiceStore) ResolveTenantAuthByIssuer(ctx context.Context, issuer string) (TenantID, TenantAuthConfigPayload, error) {
+	if s.db == nil {
+		return "", TenantAuthConfigPayload{}, sql.ErrNoRows
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return "", TenantAuthConfigPayload{}, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT tenant_id,config FROM tenant_auths WHERE config @> jsonb_build_object('providers',jsonb_build_array(jsonb_build_object('issuer',$1::text)))`, issuer)
+	if err != nil {
+		return "", TenantAuthConfigPayload{}, err
+	}
+	defer rows.Close()
+	var tenantID TenantID
+	var payload TenantAuthConfigPayload
+	matches := 0
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&tenantID, &raw); err != nil {
+			return "", TenantAuthConfigPayload{}, err
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return "", TenantAuthConfigPayload{}, err
+		}
+		matches++
+	}
+	if err := rows.Err(); err != nil {
+		return "", TenantAuthConfigPayload{}, err
+	}
+	if matches == 0 {
+		return "", TenantAuthConfigPayload{}, sql.ErrNoRows
+	}
+	if matches != 1 {
+		return "", TenantAuthConfigPayload{}, errors.New("OIDC issuer is ambiguously assigned")
+	}
+	return tenantID, payload, tx.Commit()
+}
+
+type AuditEvent struct {
+	ID            uuid.UUID      `json:"id"`
+	TenantID      TenantID       `json:"tenant_id"`
+	OccurredAt    time.Time      `json:"occurred_at"`
+	CorrelationID string         `json:"correlation_id"`
+	Actor         string         `json:"actor"`
+	EventType     string         `json:"event_type"`
+	ResourceType  string         `json:"resource_type"`
+	ResourceName  string         `json:"resource_name"`
+	Outcome       string         `json:"outcome"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+}
+
+func (s *ServiceStore) AppendAuditEvent(ctx context.Context, event AuditEvent) error {
+	if s.db == nil {
 		return nil
+	}
+	if event.ID == uuid.Nil {
+		event.ID = uuid.New()
+	}
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = time.Now().UTC()
+	}
+	metadata, err := json.Marshal(event.Metadata)
+	if err != nil {
+		return err
+	}
+	tx, err := beginTenantTx(ctx, s.db, event.TenantID, false)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO audit_events(id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, event.ID, event.TenantID, event.OccurredAt, event.CorrelationID, event.Actor, event.EventType, event.ResourceType, event.ResourceName, event.Outcome, metadata)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *ServiceStore) ListAuditEvents(ctx context.Context, limit int) ([]AuditEvent, error) {
+	if s.db == nil {
+		return []AuditEvent{}, nil
+	}
+	if limit < 1 || limit > 1000 {
+		limit = 100
+	}
+	tenantID := normalizeTenantID(s.tenantID)
+	tx, err := beginTenantTx(ctx, s.db, tenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata FROM audit_events ORDER BY occurred_at DESC,id DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := make([]AuditEvent, 0)
+	for rows.Next() {
+		var event AuditEvent
+		var metadata []byte
+		if err := rows.Scan(&event.ID, &event.TenantID, &event.OccurredAt, &event.CorrelationID, &event.Actor, &event.EventType, &event.ResourceType, &event.ResourceName, &event.Outcome, &metadata); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadata, &event.Metadata); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, tx.Commit()
+}
+
+func (s *ServiceStore) TenantActive(ctx context.Context, tenantID TenantID) (bool, error) {
+	if s.db == nil {
+		return true, nil
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM tenants WHERE id=$1`, tenantID).Scan(&status); err != nil {
+		return false, err
+	}
+	return status == "active", tx.Commit()
+}
+
+func (s *ServiceStore) SetTenantStatus(ctx context.Context, tenantID TenantID, status string) error {
+	if s.db == nil {
+		return errors.New("tenant lifecycle requires PostgreSQL")
+	}
+	if !validTenantID(tenantID) || (status != "active" && status != "suspended" && status != "offboarded") {
+		return errors.New("invalid tenant lifecycle transition")
+	}
+	if tenantID == DefaultTenantID && status != "active" {
+		return errors.New("the platform bootstrap tenant cannot be suspended or offboarded")
 	}
 	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	b, err := json.Marshal(payload)
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM tenants WHERE id=$1 FOR UPDATE`, tenantID).Scan(&currentStatus); err != nil {
+		return err
+	}
+	if currentStatus == "offboarded" && status != "offboarded" {
+		return errors.New("offboarded tenant is terminal and cannot be reactivated")
+	}
+	if status == "offboarded" {
+		var owned int
+		if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM services WHERE tenant_id=$1)+(SELECT count(*) FROM environments WHERE tenant_id=$1)`, tenantID).Scan(&owned); err != nil {
+			return err
+		}
+		if owned != 0 {
+			return errors.New("tenant must own no services or environments before offboarding")
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE tenants SET status=$2,updated_at=now() WHERE id=$1`, tenantID, status)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tenant_auths(tenant_id,config) VALUES($1,$2) ON CONFLICT (tenant_id) DO UPDATE SET config=$2,updated_at=now()`, tenantID, b); err != nil {
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
+func (s *ServiceStore) ProvisionTenant(ctx context.Context, tenantID TenantID) error {
+	if s.db == nil {
+		return errors.New("tenant provisioning requires PostgreSQL")
+	}
+	if !validTenantID(tenantID) {
+		return errors.New("invalid tenant identifier")
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT INTO tenants(id,status) VALUES($1,'active') ON CONFLICT DO NOTHING`, tenantID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return errors.New("tenant already exists")
+	}
+	return tx.Commit()
+}
+
+func (s *ServiceStore) TransferService(ctx context.Context, sourceTenant, targetTenant TenantID, serviceName string) error {
+	if s.db == nil {
+		return errors.New("repository transfer requires PostgreSQL")
+	}
+	if !validTenantID(sourceTenant) || !validTenantID(targetTenant) || sourceTenant == targetTenant || strings.TrimSpace(serviceName) == "" {
+		return errors.New("invalid repository transfer")
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var targetStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM tenants WHERE id=$1 FOR UPDATE`, targetTenant).Scan(&targetStatus); err != nil {
+		return err
+	}
+	if targetStatus != "active" {
+		return errors.New("target tenant is not active")
+	}
+	var dependent int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM environments WHERE tenant_id=$1 AND document->'spec'->>'service'=$2`, sourceTenant, serviceName).Scan(&dependent); err != nil {
+		return err
+	}
+	if dependent != 0 {
+		return errors.New("service transfer requires all preview environments to be destroyed")
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE services SET tenant_id=$3,document=jsonb_set(document,'{tenant_id}',to_jsonb($3::text),true),version=version+1,updated_at=now() WHERE tenant_id=$1 AND name=$2`, sourceTenant, serviceName, targetTenant)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrServiceNotFound
+	}
+	return tx.Commit()
+}
+
+func (s *ServiceStore) AppendPlatformAuditEvent(ctx context.Context, event AuditEvent) error {
+	if s.db == nil {
+		return nil
+	}
+	if event.ID == uuid.Nil {
+		event.ID = uuid.New()
+	}
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = time.Now().UTC()
+	}
+	metadata, err := json.Marshal(event.Metadata)
+	if err != nil {
+		return err
+	}
+	tx, err := beginTenantTx(ctx, s.db, DefaultTenantID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO audit_events(id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, event.ID, event.TenantID, event.OccurredAt, event.CorrelationID, event.Actor, event.EventType, event.ResourceType, event.ResourceName, event.Outcome, metadata)
+	if err != nil {
 		return err
 	}
 	return tx.Commit()

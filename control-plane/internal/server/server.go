@@ -111,7 +111,12 @@ func New(
 	//-----------------------------------------
 	// Router
 	//-----------------------------------------
-	tenantAuthorizer, err := api.NewTenantAuthorizer(cfg.TenantAuth.TokensJSON)
+	var tenantAuthorizer *api.TenantAuthorizer
+	if cfg.TenantAuth.TokensJSON == "" && database != nil {
+		tenantAuthorizer = api.NewEmptyTenantAuthorizer()
+	} else {
+		tenantAuthorizer, err = api.NewTenantAuthorizer(cfg.TenantAuth.TokensJSON)
+	}
 	if err != nil {
 		if database != nil {
 			_ = database.Close()
@@ -136,7 +141,7 @@ func New(
 			scm.ProviderBitbucket: bitbucketscm.NewWebhookAdapter(cfg.Bitbucket.WebhookSecret),
 		},
 		logger,
-		tenantAuthorizer,
+		api.NewHybridAuthorizer(tenantAuthorizer, store),
 	)
 
 	//-----------------------------------------

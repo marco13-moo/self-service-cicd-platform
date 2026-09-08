@@ -48,6 +48,10 @@ forced Row-Level Security, tenant-owned Kubernetes namespaces, least-privilege
 tenant deployer identities, quota and network isolation, restricted Pod Security,
 and tenant-partitioned artifact trust, exceptions, audit metadata, and evidence.
 
+ADR 0019 adds dual-mode bootstrap/OIDC authentication, bounded JWKS rollover,
+tenant lifecycle controls, and append-only tenant audit events protected by
+forced PostgreSQL Row-Level Security.
+
 ## Architecture
 
 ```text
@@ -81,6 +85,12 @@ Architectural decisions and trust boundaries are documented in
 | `DELETE` | `/api/v1/environments/{name}` | Submit and retain a destroy workflow reference |
 | `GET` | `/api/v1/environments/{name}/logs` | Return Argo UI links and CLI log hints |
 | `POST` | `/api/v1/webhooks/{provider}` | Authenticate, deduplicate, and normalize SCM deliveries |
+| `GET` | `/api/v1/tenant/auth` | Read the authenticated tenant's OIDC configuration |
+| `PUT` | `/api/v1/tenant/auth` | Replace the authenticated tenant's OIDC configuration |
+| `GET` | `/api/v1/tenant/audit` | Export the authenticated tenant's append-only audit events |
+| `POST` | `/api/v1/admin/tenants` | Provision a tenant using a platform-administrator capability |
+| `PATCH` | `/api/v1/admin/tenants/{tenant}/status` | Suspend, reactivate, or offboard a tenant |
+| `POST` | `/api/v1/admin/repository-transfers` | Transfer an idle service between active tenants |
 
 Example environment request:
 
@@ -151,7 +161,7 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_POLICY_PREDICATE_TYPE` | `https://self-service-cicd.dev/attestations/vulnerability-policy/v1` | Versioned signed vulnerability-policy predicate type |
 | `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Base name for an optional tenant-suffixed governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
 | `DATABASE_URL` | unset | PostgreSQL authority for all production state; required by the Kubernetes Deployment |
-| `TENANT_AUTH_TOKENS` | unset | Required Secret-backed JSON map of bearer tokens to `{subject,tenant_id,role}` principals |
+| `TENANT_AUTH_TOKENS` | unset | Bootstrap/break-glass JSON map of bearer tokens to `{subject,tenant_id,role,platform_admin?}` principals; optional after PostgreSQL-backed OIDC is configured |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
 The fallback file-backed repository is intentionally local and single-writer.
@@ -282,5 +292,7 @@ quarantine, and disaster recovery are specified in
 Tenant identity, database and Kubernetes isolation, and tenant-partitioned
 artifact governance are specified in
 [`ADR 0018`](docs/adr/0018-tenant-identity-authorization-and-row-isolation.md).
+Federated identity, lifecycle administration, and immutable audit are specified
+in [`ADR 0019`](docs/adr/0019-federated-tenant-identity-lifecycle-and-audit.md).
 Operational execution and rollback are documented in the
 [`artifact evidence runbook`](docs/runbooks/artifact-evidence-operations.md).

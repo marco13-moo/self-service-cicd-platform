@@ -9,6 +9,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	platformauth "github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/auth"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
@@ -222,4 +223,31 @@ func TestPostgresRowLevelTenantIsolation(t *testing.T) {
 		t.Fatal("RLS allowed alpha to insert a beta-owned service")
 	}
 	_ = tx.Rollback()
+
+	providerPayload := TenantAuthConfigPayload{Providers: []platformauth.ProviderConfig{{
+		Issuer: "https://issuer-" + suffix + ".example.test", JWKSURL: "https://issuer.example.test/keys",
+		Audiences: []string{"control-plane"}, TenantID: string(alphaID), GroupRoles: map[string]string{"developers": "developer"},
+	}}}
+	if err = alpha.PutTenantAuthConfig(context.Background(), alphaID, providerPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = beta.GetTenantAuthConfig(context.Background(), alphaID); !errors.Is(err, ErrTenantScope) {
+		t.Fatalf("cross-tenant auth configuration read was not rejected: %v", err)
+	}
+	event := AuditEvent{TenantID: alphaID, CorrelationID: suffix, Actor: "alice", EventType: "test", ResourceType: "tenant", ResourceName: string(alphaID), Outcome: "succeeded"}
+	if err = alpha.AppendAuditEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	auditTx, err := beginTenantTx(context.Background(), db, alphaID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auditVisible int
+	if err = auditTx.QueryRow(`SELECT count(*) FROM audit_events WHERE correlation_id=$1`, suffix).Scan(&auditVisible); err != nil || auditVisible != 1 {
+		t.Fatalf("tenant audit event was not visible in its scope: count=%d err=%v", auditVisible, err)
+	}
+	if _, err = auditTx.Exec(`UPDATE audit_events SET outcome='failed' WHERE correlation_id=$1`, suffix); err == nil {
+		t.Fatal("append-only audit event was mutable")
+	}
+	_ = auditTx.Rollback()
 }

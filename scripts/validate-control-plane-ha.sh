@@ -43,7 +43,9 @@ docker exec "$source_container" psql -U postgres -d "$database" -v ON_ERROR_STOP
   -c "CREATE ROLE ${tenant_role} LOGIN PASSWORD '${tenant_password}'" \
   -c "GRANT USAGE ON SCHEMA public TO ${tenant_role}" \
   -c "GRANT SELECT ON schema_migrations TO ${tenant_role}" \
-  -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands TO ${tenant_role}" >/dev/null
+  -c "GRANT SELECT ON tenants TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands,tenant_auths TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT ON audit_events TO ${tenant_role}" >/dev/null
 source_tenant_url="postgres://${tenant_role}:${tenant_password}@127.0.0.1:${source_port}/${database}?sslmode=disable"
 (
   cd "$repository_root/control-plane"
@@ -69,7 +71,9 @@ docker exec -i "$recovery_container" pg_restore -U postgres -d "$database" --cle
 docker exec "$recovery_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
   -c "GRANT USAGE ON SCHEMA public TO ${tenant_role}" \
   -c "GRANT SELECT ON schema_migrations TO ${tenant_role}" \
-  -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands TO ${tenant_role}" >/dev/null
+  -c "GRANT SELECT ON tenants TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands,tenant_auths TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT ON audit_events TO ${tenant_role}" >/dev/null
 restored_services=$(docker exec "$recovery_container" psql -U postgres -d "$database" -Atc "SELECT count(*) FROM services WHERE name='import-proof'")
 restored_environments=$(docker exec "$recovery_container" psql -U postgres -d "$database" -Atc "SELECT count(*) FROM environments WHERE name='import-proof-pr-1'")
 if [ "$restored_services" != 1 ] || [ "$restored_environments" != 1 ]; then

@@ -90,6 +90,47 @@ CREATE TABLE IF NOT EXISTS tenant_auths (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `},
+	{version: 5, sql: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+  CHECK (status IN ('active','suspended','offboarded'));
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE tenant_auths ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_auths FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_auths_tenant_isolation ON tenant_auths;
+CREATE POLICY tenant_auths_tenant_isolation ON tenant_auths
+  USING (current_setting('app.bypass_rls',true)='on' OR tenant_id=current_setting('app.tenant_id',true))
+  WITH CHECK (current_setting('app.bypass_rls',true)='on' OR tenant_id=current_setting('app.tenant_id',true));
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id UUID PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  correlation_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_name TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('succeeded','denied','failed')),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS audit_events_tenant_time_idx ON audit_events(tenant_id,occurred_at DESC);
+ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_events FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS audit_events_tenant_isolation ON audit_events;
+CREATE POLICY audit_events_tenant_isolation ON audit_events
+  USING (current_setting('app.bypass_rls',true)='on' OR tenant_id=current_setting('app.tenant_id',true))
+  WITH CHECK (current_setting('app.bypass_rls',true)='on' OR tenant_id=current_setting('app.tenant_id',true));
+
+CREATE OR REPLACE FUNCTION reject_audit_event_mutation() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'audit_events is append-only';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS audit_events_immutable ON audit_events;
+CREATE TRIGGER audit_events_immutable BEFORE UPDATE OR DELETE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION reject_audit_event_mutation();
+`},
 }
 
 // migrateDatabase serializes schema evolution across concurrently starting
