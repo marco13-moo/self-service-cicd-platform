@@ -97,7 +97,10 @@ type WorkflowReference struct {
 // Environment represents the control-plane view of an environment.
 // It contains intent + references, but no execution state.
 type Environment struct {
-	Spec EnvironmentSpec `json:"spec"`
+	// Version is the control-plane compare-and-set token. Callers must persist
+	// the version they read; repositories increment it after every mutation.
+	Version int64           `json:"version"`
+	Spec    EnvironmentSpec `json:"spec"`
 
 	CreateWorkflow  WorkflowReference  `json:"create_workflow"`
 	DestroyWorkflow *WorkflowReference `json:"destroy_workflow,omitempty"`

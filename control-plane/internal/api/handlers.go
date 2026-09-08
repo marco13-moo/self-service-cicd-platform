@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path"
 	"strings"
@@ -61,6 +62,11 @@ func (h *Handlers) Healthz(w http.ResponseWriter, _ *http.Request) {
 func (h *Handlers) Readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
+	if err := h.store.Ready(ctx); err != nil {
+		h.logger.Warn("state plane readiness probe failed", zap.Error(err))
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "state plane unavailable"})
+		return
+	}
 	if err := h.envOrchestrator.Ready(ctx); err != nil {
 		h.logger.Warn("execution plane readiness probe failed", zap.Error(err))
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "execution plane unavailable"})
@@ -183,6 +189,10 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.store.PutEnvironment(env); err != nil {
 		h.logger.Error("environment submitted but reference persistence failed", zap.Error(err))
+		if errors.Is(err, ErrVersionConflict) {
+			http.Error(w, "environment changed concurrently; retry with fresh state", http.StatusConflict)
+			return
+		}
 		http.Error(w, "environment submitted but state persistence failed", http.StatusInternalServerError)
 		return
 	}
@@ -219,6 +229,10 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 	env.DestroyWorkflow = destroyRef
 	if err := h.store.PutEnvironment(env); err != nil {
 		h.logger.Error("destroy submitted but reference persistence failed", zap.Error(err))
+		if errors.Is(err, ErrVersionConflict) {
+			http.Error(w, "environment changed concurrently; retry with fresh state", http.StatusConflict)
+			return
+		}
 		http.Error(w, "destroy submitted but state persistence failed", http.StatusInternalServerError)
 		return
 	}

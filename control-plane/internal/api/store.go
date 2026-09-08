@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 var ErrEnvironmentNotFound = errors.New("environment not found")
 var ErrServiceNotFound = errors.New("service not found")
 var ErrCommandNotFound = errors.New("SCM command not found")
+var ErrVersionConflict = errors.New("state version conflict")
 
 // ServiceStore is a concurrency-safe repository for control-plane intent and
 // immutable workflow references. When path is non-empty, mutations are durable.
@@ -28,6 +31,87 @@ type ServiceStore struct {
 	environments  map[string]*orchestrator.Environment
 	scmDeliveries map[string]time.Time
 	scmCommands   []scm.LifecycleCommand
+	db            *sql.DB
+}
+
+// NewPostgresServiceStore makes PostgreSQL authoritative for service and
+// environment state. File-backed maps remain unpopulated and cannot diverge.
+func NewPostgresServiceStore(ctx context.Context, db *sql.DB) (*ServiceStore, error) {
+	if err := migrateDatabase(ctx, db); err != nil {
+		return nil, err
+	}
+	store := NewServiceStore()
+	store.db = db
+	return store, nil
+}
+
+// ImportPersistentState performs an intentionally explicit, one-time transfer
+// from the legacy JSON repository into an empty PostgreSQL state plane. Refusing
+// a non-empty target prevents an operator from silently merging divergent
+// authoritative histories during a rolling migration.
+func ImportPersistentState(ctx context.Context, db *sql.DB, path string) (int, int, error) {
+	legacy, err := NewPersistentServiceStore(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	target, err := NewPostgresServiceStore(ctx, db)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err = target.Ready(ctx); err != nil {
+		return 0, 0, fmt.Errorf("verify PostgreSQL target: %w", err)
+	}
+	services := legacy.List()
+	environments := legacy.ListEnvironments()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("begin state import: %w", err)
+	}
+	defer tx.Rollback()
+	// Serialize the emptiness check and import with migrations and any competing
+	// importer. Normal writers cannot exist during the documented stopped-writer
+	// cutover; the lock makes accidental duplicate importers deterministic.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockID); err != nil {
+		return 0, 0, fmt.Errorf("lock state import: %w", err)
+	}
+	var stateRows int
+	if err = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM services) + (SELECT count(*) FROM environments)`).Scan(&stateRows); err != nil {
+		return 0, 0, fmt.Errorf("inspect PostgreSQL target: %w", err)
+	}
+	if stateRows != 0 {
+		return 0, 0, errors.New("PostgreSQL target already contains service or environment state")
+	}
+	for _, service := range services {
+		service.Version = 1
+		document, marshalErr := json.Marshal(service)
+		if marshalErr != nil {
+			return 0, 0, fmt.Errorf("encode service %q: %w", service.Name, marshalErr)
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO services(name,document,version) VALUES($1,$2,1)`, service.Name, document); err != nil {
+			return 0, 0, fmt.Errorf("import service %q: %w", service.Name, err)
+		}
+	}
+	for _, environment := range environments {
+		environment.Version = 1
+		document, marshalErr := json.Marshal(environment)
+		if marshalErr != nil {
+			return 0, 0, fmt.Errorf("encode environment %q: %w", environment.Spec.Name, marshalErr)
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO environments(name,document,version) VALUES($1,$2,1)`, environment.Spec.Name, document); err != nil {
+			return 0, 0, fmt.Errorf("import environment %q: %w", environment.Spec.Name, err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("commit state import: %w", err)
+	}
+	return len(services), len(environments), nil
+}
+
+func (s *ServiceStore) Ready(ctx context.Context) error {
+	if s.db == nil {
+		return nil
+	}
+	return s.db.PingContext(ctx)
 }
 
 type persistedState struct {
@@ -103,6 +187,9 @@ func NewPersistentServiceStore(path string) (*ServiceStore, error) {
 }
 
 func (s *ServiceStore) Put(service Service) error {
+	if s.db != nil {
+		return s.putServicePostgres(service)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, existed := s.services[service.Name]
@@ -119,6 +206,9 @@ func (s *ServiceStore) Put(service Service) error {
 }
 
 func (s *ServiceStore) Get(name string) (Service, error) {
+	if s.db != nil {
+		return s.getServicePostgres(name)
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	svc, ok := s.services[name]
@@ -129,6 +219,9 @@ func (s *ServiceStore) Get(name string) (Service, error) {
 }
 
 func (s *ServiceStore) List() []Service {
+	if s.db != nil {
+		return s.listServicesPostgres()
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]Service, 0, len(s.services))
@@ -140,25 +233,47 @@ func (s *ServiceStore) List() []Service {
 }
 
 func (s *ServiceStore) FindServiceByRepository(repository string) (Service, error) {
+	if s.db != nil {
+		for _, service := range s.listServicesPostgres() {
+			if serviceMatchesRepository(service, repository) {
+				return service, nil
+			}
+		}
+		return Service{}, ErrServiceNotFound
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	wanted := strings.ToLower(strings.TrimSuffix(strings.Trim(repository, "/"), ".git"))
 	for _, service := range s.services {
-		if service.Repository.Provider != "" && strings.EqualFold(service.Repository.Workspace+"/"+service.Repository.Name, wanted) {
-			return service, nil
-		}
-		candidate := strings.ToLower(strings.TrimSuffix(strings.Trim(service.RepoURL, "/"), ".git"))
-		if candidate == wanted || strings.HasSuffix(candidate, "/"+wanted) || strings.HasSuffix(candidate, ":"+wanted) {
+		if serviceMatchesRepository(service, repository) {
 			return service, nil
 		}
 	}
 	return Service{}, ErrServiceNotFound
 }
 
+func serviceMatchesRepository(service Service, repository string) bool {
+	wanted := strings.ToLower(strings.TrimSuffix(strings.Trim(repository, "/"), ".git"))
+	if service.Repository.Provider != "" && strings.EqualFold(service.Repository.Workspace+"/"+service.Repository.Name, wanted) {
+		return true
+	}
+	candidate := strings.ToLower(strings.TrimSuffix(strings.Trim(service.RepoURL, "/"), ".git"))
+	return candidate == wanted || strings.HasSuffix(candidate, "/"+wanted) || strings.HasSuffix(candidate, ":"+wanted)
+}
+
 func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
+	if s.db != nil {
+		return s.putEnvironmentPostgres(env)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, existed := s.environments[env.Spec.Name]
+	if existed && env.Version != previous.Version {
+		return ErrVersionConflict
+	}
+	if !existed && env.Version != 0 {
+		return ErrVersionConflict
+	}
+	env.Version++
 	s.environments[env.Spec.Name] = cloneEnvironment(env)
 	if err := s.persistLocked(); err != nil {
 		if existed {
@@ -166,12 +281,16 @@ func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
 		} else {
 			delete(s.environments, env.Spec.Name)
 		}
+		env.Version--
 		return err
 	}
 	return nil
 }
 
 func (s *ServiceStore) GetEnvironment(name string) (*orchestrator.Environment, error) {
+	if s.db != nil {
+		return s.getEnvironmentPostgres(name)
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	env, ok := s.environments[name]
@@ -184,6 +303,9 @@ func (s *ServiceStore) GetEnvironment(name string) (*orchestrator.Environment, e
 // ListEnvironments returns detached snapshots so observers cannot mutate the
 // authoritative store without passing through an atomic persistence boundary.
 func (s *ServiceStore) ListEnvironments() []*orchestrator.Environment {
+	if s.db != nil {
+		return s.listEnvironmentsPostgres()
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	names := make([]string, 0, len(s.environments))
@@ -212,6 +334,9 @@ type DeploymentEvidence struct {
 // result from an obsolete Workflow is ignored rather than being allowed to
 // promote the desired artifact of a newer deployment generation.
 func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation int64, phase, message string, observedAt time.Time, evidence DeploymentEvidence) (bool, error) {
+	if s.db != nil {
+		return s.observeDeploymentPostgres(name, workflowName, generation, phase, message, observedAt, evidence)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	env, ok := s.environments[name]
@@ -226,6 +351,7 @@ func (s *ServiceStore) ObserveDeployment(name, workflowName string, generation i
 		return false, nil
 	}
 	previous := cloneEnvironment(env)
+	env.Version++
 	stamp := observedAt.UTC()
 	source.DeploymentPhase = phase
 	source.DeploymentMessage = message
@@ -284,6 +410,17 @@ func cloneEnvironment(env *orchestrator.Environment) *orchestrator.Environment {
 }
 
 func (s *ServiceStore) DeleteEnvironment(name string) error {
+	if s.db != nil {
+		result, err := s.db.Exec(`DELETE FROM environments WHERE name=$1`, name)
+		if err != nil {
+			return err
+		}
+		rows, _ := result.RowsAffected()
+		if rows == 0 {
+			return ErrEnvironmentNotFound
+		}
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, existed := s.environments[name]

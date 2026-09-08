@@ -19,6 +19,7 @@ type Service struct {
 	Environment string                 `json:"environment"`
 	Deployment  ServiceDeployment      `json:"deployment"`
 	CreatedAt   time.Time              `json:"created_at"`
+	Version     int64                  `json:"version"`
 }
 
 type ServiceDeployment struct {
@@ -47,5 +48,6 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 		Environment: req.Environment,
 		Deployment:  deployment,
 		CreatedAt:   time.Now().UTC(),
+		Version:     1,
 	}
 }

@@ -24,7 +24,7 @@ type PostgresCommandStore struct{ db *sql.DB }
 
 func NewPostgresCommandStore(ctx context.Context, db *sql.DB) (*PostgresCommandStore, error) {
 	store := &PostgresCommandStore{db: db}
-	if _, err := db.ExecContext(ctx, postgresSchema); err != nil {
+	if err := migrateDatabase(ctx, db); err != nil {
 		return nil, fmt.Errorf("migrate PostgreSQL command store: %w", err)
 	}
 	return store, nil

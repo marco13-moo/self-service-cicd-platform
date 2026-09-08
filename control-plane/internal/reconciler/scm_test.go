@@ -2,16 +2,87 @@ package reconciler
 
 import (
 	"context"
+	"database/sql"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 	"go.uber.org/zap"
 )
+
+func TestPostgresReconciliationContinuesAfterReplicaTermination(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	primaryDB, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondaryDB, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondaryDB.Close()
+	primaryState, err := api.NewPostgresServiceStore(context.Background(), primaryDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondaryState, err := api.NewPostgresServiceStore(context.Background(), secondaryDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryCommands, err := api.NewPostgresCommandStore(context.Background(), primaryDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondaryCommands, err := api.NewPostgresCommandStore(context.Background(), secondaryDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	serviceName := "reconcile-ha-" + suffix
+	environmentName := serviceName + "-pr-7"
+	t.Cleanup(func() {
+		_, _ = secondaryDB.Exec(`DELETE FROM environments WHERE name=$1`, environmentName)
+		_, _ = secondaryDB.Exec(`DELETE FROM services WHERE name=$1`, serviceName)
+		_, _ = secondaryDB.Exec(`DELETE FROM scm_commands WHERE environment=$1`, environmentName)
+		_, _ = secondaryDB.Exec(`DELETE FROM scm_deliveries WHERE delivery_id=$1`, suffix)
+	})
+	if err = primaryState.Put(api.Service{Name: serviceName, RepoURL: "https://github.com/acme/" + serviceName, Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	command := &scm.LifecycleCommand{ID: "github:" + suffix, Provider: scm.ProviderGitHub, DeliveryID: suffix, Type: scm.EnsurePreviewEnvironment, Repository: "acme/" + serviceName, PullRequest: 7, HeadSHA: "abc1234", Environment: environmentName, Status: scm.CommandPending, AvailableAt: now, CreatedAt: now}
+	if duplicate, recordErr := primaryCommands.RecordSCMDelivery(scm.ProviderGitHub, suffix, command, now); recordErr != nil || duplicate {
+		t.Fatalf("record command: duplicate=%v err=%v", duplicate, recordErr)
+	}
+	if _, err = primaryCommands.LeaseSCMCommand(now, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err = primaryDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeOrchestrator{}
+	replica := NewSCMCommandReconciler(secondaryState, secondaryCommands, fake, time.Hour, PreviewRuntimeConfig{ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview", CosignPublicKeySecret: "cosign-public", SigningProfile: "kms", CosignAuthMode: "ambient", PolicyPredicateType: "https://example.test/policy/v1", TargetPlatform: "linux/amd64"}, zap.NewNop())
+	if processed, processErr := replica.ProcessOne(context.Background(), now.Add(2*time.Second)); processErr != nil || !processed {
+		t.Fatalf("replacement replica did not reconcile expired lease: processed=%v err=%v", processed, processErr)
+	}
+	if fake.creates != 1 || fake.deploys != 1 {
+		t.Fatalf("replacement reconciliation was incomplete: creates=%d deploys=%d", fake.creates, fake.deploys)
+	}
+	if _, err = secondaryState.GetEnvironment(environmentName); err != nil {
+		t.Fatalf("replacement replica did not persist environment: %v", err)
+	}
+}
 
 type fakeOrchestrator struct {
 	creates, deploys, destroys int

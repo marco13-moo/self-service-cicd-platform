@@ -9,12 +9,12 @@ validated intent; Argo remains the authoritative execution and lifecycle engine.
 Phases 1–7 are implemented:
 
 - Go control-plane service with explicit API, orchestration, execution, and provider boundaries
-- Service registration and durable local state
+- Service registration with PostgreSQL-authoritative production state
 - Ephemeral environment create, TTL cleanup, and destroy workflows
 - Live workflow status inspection and execution-plane log navigation
 - Typed Argo Workflows Go SDK integration with no CLI subprocess dependency
-- Kubernetes RBAC, deployment, service, service accounts, and persistent state volume
-- Liveness and Argo-aware readiness probes
+- Three-replica Kubernetes Deployment, RBAC, Service, topology spreading, and disruption budget
+- Process liveness plus PostgreSQL- and Argo-aware readiness probes
 - GitHub repository validation and root-manifest project detection
 - HMAC-authenticated GitHub webhook ingestion with durable delivery deduplication
 - GitHub and Bitbucket Cloud webhook adapters over a provider-neutral SCM domain
@@ -35,6 +35,12 @@ ADR 0016 closes the artifact-evidence lifecycle with recursive registry backup
 and restore conformance, garbage-collection survival checks, overlap-based KMS
 key rotation, scheduled signature and policy-attestation re-verification, and
 automatic quarantine of unverifiable preview workloads.
+
+ADR 0017 removes the remaining single-writer constraint: services,
+environments, deliveries, and commands share an authoritative PostgreSQL
+failure domain; environment writes use optimistic concurrency; startup
+migrations are transactionally serialized; and the control plane runs as three
+interchangeable, gracefully draining replicas.
 
 ## Architecture
 
@@ -105,7 +111,7 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `HTTP_ADDRESS` | `:8080` | API listen address |
 | `ENVIRONMENT` | `local` | Runtime environment label |
 | `LOG_LEVEL` | `info` | Structured log level |
-| `STATE_PATH` | `/var/lib/control-plane/state.json` | Atomic JSON state repository |
+| `STATE_PATH` | `/var/lib/control-plane/state.json` | Single-replica development fallback and one-time migration source |
 | `ARGO_NAMESPACE` | `argo` | Workflow namespace |
 | `ARGO_UI_BASE_URL` | `http://argo-server.argo.svc` | Base URL returned by log navigation |
 | `GITHUB_TOKEN` | unset | Optional token for private repositories or higher API limits |
@@ -138,12 +144,23 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_COSIGN_PUBLIC_KEY_SECRET` | `preview-cosign-public` | Public-only Argo Secret containing `cosign.pub` |
 | `PREVIEW_POLICY_PREDICATE_TYPE` | `https://self-service-cicd.dev/attestations/vulnerability-policy/v1` | Versioned signed vulnerability-policy predicate type |
 | `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Optional governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
-| `DATABASE_URL` | unset | PostgreSQL connection URL for distributed command leasing; file queue is the fallback |
+| `DATABASE_URL` | unset | PostgreSQL authority for all production state; required by the Kubernetes Deployment |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
 
-The fallback file-backed state repository is intentionally single-writer. The
-Kubernetes deployment mounts a `ReadWriteOnce` PVC; configure PostgreSQL before
-running multiple reconcilers.
+The fallback file-backed repository is intentionally local and single-writer.
+Production has no state volume: its three replicas require the
+`control-plane-database` Secret and share PostgreSQL. Before the first cutover,
+stop the legacy writer and import its JSON snapshot into an empty database:
+
+```bash
+cd control-plane
+DATABASE_URL='postgres://...' go run ./cmd/state-migrate \
+  -state-path /path/to/state.json
+```
+
+The import refuses a non-empty target. See
+[`control-plane-ha.md`](docs/runbooks/control-plane-ha.md) for cutover, backup,
+restore, and failover acceptance criteria.
 
 For production signing, copy
 [`preview-trust-config-example.yaml`](infra/k8s/preview-trust-config-example.yaml),
@@ -191,9 +208,12 @@ alerting cannot mistake quarantine for a healthy run.
 The isolated quarantine contract can be replayed with
 [`validate-evidence-reverification.sh`](scripts/validate-evidence-reverification.sh).
 
-When `DATABASE_URL` is configured, delivery deduplication and command leasing use
-PostgreSQL transactions with `FOR UPDATE SKIP LOCKED`, permitting multiple
-reconcilers. The lifecycle smoke harness is
+When `DATABASE_URL` is configured, all desired state, delivery deduplication,
+and command leasing use PostgreSQL transactions. `FOR UPDATE SKIP LOCKED`,
+durable lease expiry, and versioned compare-and-set mutations permit multiple
+reconcilers without lost updates. The HA backup/restore and replica-termination
+harness is [`validate-control-plane-ha.sh`](scripts/validate-control-plane-ha.sh).
+The lifecycle smoke harness is
 [`scripts/validate-preview-lifecycle.sh`](scripts/validate-preview-lifecycle.sh).
 
 ## Development

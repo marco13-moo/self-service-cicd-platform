@@ -29,6 +29,7 @@ type Server struct {
 	cancelReconciliation context.CancelFunc
 	database             *sql.DB
 	authenticators       map[scm.Provider]scm.Authenticator
+	reconcileDone        chan struct{}
 }
 
 func New(
@@ -61,11 +62,8 @@ func New(
 		argoExecutor,
 	)
 
-	store, err := api.NewPersistentServiceStore(cfg.State.Path)
-	if err != nil {
-		return nil, fmt.Errorf("initialize state store: %w", err)
-	}
-	var commandStore api.SCMCommandStore = store
+	var store *api.ServiceStore
+	var commandStore api.SCMCommandStore
 	var database *sql.DB
 	if cfg.Database.URL != "" {
 		database, err = sql.Open("pgx", cfg.Database.URL)
@@ -76,11 +74,22 @@ func New(
 			_ = database.Close()
 			return nil, fmt.Errorf("connect PostgreSQL command store: %w", err)
 		}
+		store, err = api.NewPostgresServiceStore(context.Background(), database)
+		if err != nil {
+			_ = database.Close()
+			return nil, fmt.Errorf("initialize PostgreSQL state store: %w", err)
+		}
 		commandStore, err = api.NewPostgresCommandStore(context.Background(), database)
 		if err != nil {
 			_ = database.Close()
 			return nil, err
 		}
+	} else {
+		store, err = api.NewPersistentServiceStore(cfg.State.Path)
+		if err != nil {
+			return nil, fmt.Errorf("initialize state store: %w", err)
+		}
+		commandStore = store
 	}
 	argoLinks := orchestrator.NewArgoLinks(cfg.Argo.UIBaseURL)
 	authenticators := map[scm.Provider]scm.Authenticator{}
@@ -147,17 +156,28 @@ func New(
 		cancelReconciliation: cancelReconciliation,
 		database:             database,
 		authenticators:       authenticators,
+		reconcileDone:        make(chan struct{}),
 	}, nil
 }
 
 func (s *Server) Start() error {
-	go s.reconciler.Run(s.reconcileContext)
+	go func() {
+		defer close(s.reconcileDone)
+		s.reconciler.Run(s.reconcileContext)
+	}()
 	return s.httpServer.ListenAndServe()
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.cancelReconciliation()
 	err := s.httpServer.Shutdown(ctx)
+	select {
+	case <-s.reconcileDone:
+	case <-ctx.Done():
+		if err == nil {
+			err = ctx.Err()
+		}
+	}
 	if s.database != nil {
 		_ = s.database.Close()
 	}

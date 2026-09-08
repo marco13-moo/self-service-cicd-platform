@@ -4,7 +4,14 @@ metadata:
   name: control-plane
   namespace: control-plane
 spec:
-  replicas: 1
+  replicas: 3
+  minReadySeconds: 10
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: control-plane
@@ -13,6 +20,23 @@ spec:
       labels:
         app: control-plane
     spec:
+      terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: control-plane
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: control-plane
       serviceAccountName: control-plane
       containers:
         - name: control-plane
@@ -29,8 +53,6 @@ spec:
               path: /readyz
               port: 8080
           env:
-            - name: STATE_PATH
-              value: /var/lib/control-plane/state.json
             - name: ARGO_NAMESPACE
               value: argo
             - name: ARGO_UI_BASE_URL
@@ -112,7 +134,7 @@ spec:
                 secretKeyRef:
                   name: control-plane-database
                   key: url
-                  optional: true
+                  optional: false
             - name: GITHUB_APP_ID
               valueFrom:
                 secretKeyRef:
@@ -140,17 +162,10 @@ spec:
                   key: oauth-client-secret
                   optional: true
           volumeMounts:
-            - name: state
-              mountPath: /var/lib/control-plane
             - name: github-private-key
               mountPath: /var/run/secrets/github
               readOnly: true
       volumes:
-        # Replace this with a PersistentVolumeClaim for multi-replica or
-        # node-independent durability. The file repository is single-writer.
-        - name: state
-          persistentVolumeClaim:
-            claimName: control-plane-state
         - name: github-private-key
           secret:
             secretName: github-app
