@@ -57,6 +57,19 @@ func TestCreatePersistsExpiryAndSubmitsDurableTTLSuspension(t *testing.T) {
 	}
 }
 
+func TestTenantNamespaceIsDeterministicBoundedAndIsolated(t *testing.T) {
+	alpha := NamespaceForTenant("alpha", "checkout-pr-42")
+	beta := NamespaceForTenant("beta", "checkout-pr-42")
+	if alpha == beta || alpha != "t-alpha-checkout-pr-42" || beta != "t-beta-checkout-pr-42" {
+		t.Fatalf("tenant namespace collision: alpha=%q beta=%q", alpha, beta)
+	}
+	longA := NamespaceForTenant("tenant-with-a-deliberately-long-identity", "service-with-a-deliberately-long-preview-environment-name-a")
+	longB := NamespaceForTenant("tenant-with-a-deliberately-long-identity", "service-with-a-deliberately-long-preview-environment-name-b")
+	if len(longA) > 63 || len(longB) > 63 || longA == longB {
+		t.Fatalf("bounded namespaces are invalid or collided: %q %q", longA, longB)
+	}
+}
+
 func TestGetDeployStatusReadsCurrentWorkflow(t *testing.T) {
 	executor := &recordingExecutor{workflows: map[string]*wf.Workflow{
 		"deploy-2": {Status: wf.WorkflowStatus{Phase: wf.WorkflowSucceeded}},

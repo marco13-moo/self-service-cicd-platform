@@ -195,9 +195,11 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("submitting environment to orchestrator")
 
 	env, err := h.envOrchestrator.Create(r.Context(), orchestrator.EnvironmentSpec{
-		Name:    req.Name,
-		Service: req.Service,
-		TTL:     ttl,
+		TenantID:  string(tenantFromRequest(r)),
+		Name:      req.Name,
+		Namespace: orchestrator.NamespaceForTenant(string(tenantFromRequest(r)), req.Name),
+		Service:   req.Service,
+		TTL:       ttl,
 	})
 	if err != nil {
 		h.logger.Error("failed to create environment", zap.Error(err))
@@ -237,8 +239,9 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 
 	destroyRef, err := h.envOrchestrator.Destroy(
 		ctx,
-		name,
+		env.Spec.Namespace,
 		env.Spec.Service,
+		env.Spec.TenantID,
 	)
 	if err != nil {
 		h.logger.Error("failed to delete environment", zap.Error(err))

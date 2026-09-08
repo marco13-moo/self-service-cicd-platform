@@ -72,7 +72,7 @@ func TestPostgresReconciliationContinuesAfterReplicaTermination(t *testing.T) {
 	}
 
 	fake := &fakeOrchestrator{}
-	replica := NewSCMCommandReconciler(secondaryState, secondaryCommands, fake, time.Hour, PreviewRuntimeConfig{ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview", CosignPublicKeySecret: "cosign-public", SigningProfile: "kms", CosignAuthMode: "ambient", PolicyPredicateType: "https://example.test/policy/v1", TargetPlatform: "linux/amd64"}, zap.NewNop())
+	replica := NewSCMCommandReconciler(secondaryState, secondaryCommands, fake, time.Hour, PreviewRuntimeConfig{ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview-{tenant}", CosignPublicKeySecret: "cosign-public", SigningProfile: "kms", CosignAuthMode: "ambient", PolicyPredicateType: "https://example.test/policy/v1", TargetPlatform: "linux/amd64"}, zap.NewNop())
 	if processed, processErr := replica.ProcessOne(context.Background(), now.Add(2*time.Second)); processErr != nil || !processed {
 		t.Fatalf("replacement replica did not reconcile expired lease: processed=%v err=%v", processed, processErr)
 	}
@@ -94,7 +94,7 @@ func (f *fakeOrchestrator) Create(_ context.Context, spec orchestrator.Environme
 	f.creates++
 	return &orchestrator.Environment{Spec: spec, CreateWorkflow: orchestrator.WorkflowReference{Name: "create", Namespace: "argo"}}, nil
 }
-func (f *fakeOrchestrator) Destroy(_ context.Context, name, _ string) (*orchestrator.WorkflowReference, error) {
+func (f *fakeOrchestrator) Destroy(_ context.Context, name, _, _ string) (*orchestrator.WorkflowReference, error) {
 	f.destroys++
 	return &orchestrator.WorkflowReference{Name: "destroy-" + name, Namespace: "argo"}, nil
 }
@@ -104,7 +104,7 @@ func (f *fakeOrchestrator) Deploy(_ context.Context, _ *orchestrator.Environment
 	return &orchestrator.WorkflowReference{Name: "deploy", Namespace: "argo"}, nil
 }
 func (*fakeOrchestrator) GetCreateStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
-	return nil, nil
+	return &wf.WorkflowStatus{Phase: wf.WorkflowSucceeded}, nil
 }
 func (*fakeOrchestrator) GetTTLStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
 	return nil, nil
@@ -128,7 +128,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	reconciler := NewSCMCommandReconciler(store, store, fake, time.Hour, PreviewRuntimeConfig{
 		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test", RegistrySecretName: "registry-credentials",
 		ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL", IgnoreUnfixed: true,
-		CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview", SigningProfile: "kms", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public",
+		CosignImage: "cosign:test", CosignSigner: "awskms:///alias/preview-{tenant}", SigningProfile: "kms", CosignPrivateKeySecret: "cosign-private", CosignPublicKeySecret: "cosign-public",
 		CosignAuthMode: "ambient", VaultImage: "vault:test", VaultRole: "signer",
 		PolicyPredicateType: "https://example.test/policy/v1",
 		TargetPlatform:      "linux/amd64",
@@ -142,7 +142,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	if fake.deploys != 1 {
 		t.Fatalf("expected one deployment, got %d", fake.deploys)
 	}
-	if fake.lastDeployment.ImageRef != "registry.example.test/previews/checkout:abc1234" || fake.lastDeployment.ImageRepository != "registry.example.test/previews/checkout" || fake.lastDeployment.PreviewURL != "http://preview.checkout-pr-3.svc.cluster.local:8080" {
+	if fake.lastDeployment.ImageRef != "registry.example.test/previews/default/checkout:abc1234" || fake.lastDeployment.ImageRepository != "registry.example.test/previews/default/checkout" || fake.lastDeployment.PreviewURL != "http://preview.t-default-checkout-pr-3.svc.cluster.local:8080" {
 		t.Fatalf("unexpected preview deployment: %#v", fake.lastDeployment)
 	}
 	env, err := store.GetEnvironment("checkout-pr-3")
@@ -158,7 +158,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.SignatureReference == "" || env.Spec.Source.PolicyAttestation == "" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/default/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.SignatureReference == "" || env.Spec.Source.PolicyAttestation == "" || env.Spec.Source.PreviewURL == "" || env.Spec.Source.DeploymentPhase != "Succeeded" {
 		t.Fatalf("successful workflow was not promoted: %#v", env.Spec.Source)
 	}
 	update := ensure
@@ -184,7 +184,7 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ = store.GetEnvironment("checkout-pr-3")
-	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
+	if env.Spec.Source.DeployedSHA != "abc1234" || env.Spec.Source.DeployedImage != "registry.example.test/previews/default/checkout@"+digest || env.Spec.Source.ImageDigest != digest || env.Spec.Source.VulnerabilityPolicy != "passed" || env.Spec.Source.DeploymentPhase != "Failed" || env.Spec.Source.DeploymentMessage != "build failed" {
 		t.Fatalf("failed workflow must not promote its desired SHA: %#v", env.Spec.Source)
 	}
 
@@ -225,5 +225,27 @@ func TestDeploymentObservationFailsClosedWithoutDigest(t *testing.T) {
 	observed, _ := store.GetEnvironment("checkout-pr-9")
 	if observed.Spec.Source.DeploymentPhase != "Error" || observed.Spec.Source.DeployedSHA != "" || observed.Spec.Source.DeployedImage != "" {
 		t.Fatalf("digestless success escaped the fail-closed boundary: %#v", observed.Spec.Source)
+	}
+}
+
+func TestPreviewDeploymentPartitionsTenantArtifactTrust(t *testing.T) {
+	reconciler := NewSCMCommandReconciler(api.NewServiceStore(), api.NewServiceStore(), &fakeOrchestrator{}, time.Hour, PreviewRuntimeConfig{
+		ImageRepository: "registry.example.test/previews", BuilderImage: "buildkit:test",
+		ScannerImage: "trivy:test", VulnerabilitySeverities: "CRITICAL",
+		CosignImage: "cosign:test", CosignSigner: "hashivault://preview-signing-{tenant}", SigningProfile: "kms",
+		CosignPublicKeySecret: "preview-cosign-public", VEXConfigMap: "preview-vex-none",
+		CosignAuthMode: "ambient", PolicyPredicateType: "https://example.test/policy/v1", TargetPlatform: "linux/amd64",
+	}, zap.NewNop())
+	service := api.Service{TenantID: "alpha", Name: "checkout", Repository: scm.RepositoryIdentity{Name: "checkout"}}
+
+	deployment, err := reconciler.previewDeployment(service, "t-alpha-checkout-pr-3", "abc1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deployment.ImageRepository != "registry.example.test/previews/alpha/checkout" || deployment.CosignSigner != "hashivault://preview-signing-alpha" {
+		t.Fatalf("tenant image or signer escaped partitioning: %#v", deployment)
+	}
+	if deployment.CosignPublicKeySecret != "preview-cosign-public-alpha" || deployment.VEXConfigMap != "preview-vex-none-alpha" {
+		t.Fatalf("tenant trust objects escaped partitioning: %#v", deployment)
 	}
 }

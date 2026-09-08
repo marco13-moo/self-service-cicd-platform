@@ -35,6 +35,7 @@ kubectl -n "$vault_namespace" cp "$policy_file" "$vault_pod:/tmp/signer.hcl"
 public_key=$("${vault_exec[@]}" read -format=json transit/keys/preview-signing | jq -r '.data.keys["1"].public_key')
 test -n "$public_key" && test "$public_key" != null
 kubectl -n argo create secret generic preview-cosign-public-conformance \
+  --labels platform.tenant=conformance \
   --from-literal=cosign.pub="$public_key" --dry-run=client -o yaml | kubectl apply -f -
 
 cat <<EOF

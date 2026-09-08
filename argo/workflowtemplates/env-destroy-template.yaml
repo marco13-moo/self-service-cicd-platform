@@ -9,6 +9,7 @@ spec:
   arguments:
     parameters:
       - name: env_name
+      - name: tenant_id
   templates:
     - name: delete-namespace
       container:
@@ -16,4 +17,11 @@ spec:
         command: [sh, -c]
         args:
           - |
-            kubectl delete namespace {{workflow.parameters.env_name}} --ignore-not-found
+            set -eu
+            namespace='{{workflow.parameters.env_name}}'
+            tenant='{{workflow.parameters.tenant_id}}'
+            if kubectl get namespace "$namespace" >/dev/null 2>&1; then
+              owner=$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.labels.platform\.tenant}')
+              test "$owner" = "$tenant" || { echo "namespace ownership conflict" >&2; exit 1; }
+              kubectl delete namespace "$namespace"
+            fi

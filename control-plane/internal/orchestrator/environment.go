@@ -2,6 +2,9 @@ package orchestrator
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
+	"strings"
 	"time"
 
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
@@ -14,12 +17,39 @@ import (
 // EnvironmentSpec defines the desired environment.
 // This remains intent-only.
 type EnvironmentSpec struct {
+	TenantID   string            `json:"tenant_id"`
 	Name       string            `json:"name"`
+	Namespace  string            `json:"namespace"`
 	Service    string            `json:"service"`
 	TTL        time.Duration     `json:"ttl"`
 	ExpiresAt  time.Time         `json:"expires_at"`
 	Parameters map[string]string `json:"parameters,omitempty"`
 	Source     *SourceRevision   `json:"source,omitempty"`
+}
+
+// NamespaceForTenant maps logical tenant/environment identity to a stable DNS
+// label. A hash suffix preserves collision resistance when truncation is needed.
+func NamespaceForTenant(tenantID, environment string) string {
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	return boundedDNSLabel("t-" + tenantID + "-" + environment)
+}
+
+func ServiceAccountForTenant(tenantID string) string {
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	return boundedDNSLabel("tenant-" + tenantID)
+}
+
+func boundedDNSLabel(value string) string {
+	value = strings.Trim(strings.ToLower(value), "-")
+	if len(value) <= 63 {
+		return value
+	}
+	digest := sha256.Sum256([]byte(value))
+	return strings.TrimRight(value[:54], "-") + "-" + fmt.Sprintf("%x", digest[:4])
 }
 
 type SourceRevision struct {
@@ -136,7 +166,7 @@ type EnvironmentOrchestrator interface {
 
 	// Destroy submits intent to destroy an environment.
 	//Destroy(ctx context.Context, name string) (*WorkflowReference, error)
-	Destroy(ctx context.Context, name string, service string) (*WorkflowReference, error)
+	Destroy(ctx context.Context, namespace string, service string, tenantID string) (*WorkflowReference, error)
 	Deploy(ctx context.Context, env *Environment, deployment PreviewDeployment) (*WorkflowReference, error)
 
 	// GetCreateStatus returns the current status of the create workflow.

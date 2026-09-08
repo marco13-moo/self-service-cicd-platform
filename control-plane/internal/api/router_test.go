@@ -25,7 +25,7 @@ func (fakeRepositoryProvider) DetectProjectType(string) (string, error) { return
 func (f *fakeEnvironmentOrchestrator) Create(_ context.Context, spec orchestrator.EnvironmentSpec) (*orchestrator.Environment, error) {
 	return &orchestrator.Environment{Spec: spec, CreateWorkflow: orchestrator.WorkflowReference{Name: "create-1", Namespace: "argo"}}, nil
 }
-func (f *fakeEnvironmentOrchestrator) Destroy(_ context.Context, name, _ string) (*orchestrator.WorkflowReference, error) {
+func (f *fakeEnvironmentOrchestrator) Destroy(_ context.Context, name, _, _ string) (*orchestrator.WorkflowReference, error) {
 	return &orchestrator.WorkflowReference{Name: "destroy-" + name, Namespace: "argo"}, nil
 }
 func (f *fakeEnvironmentOrchestrator) Deploy(context.Context, *orchestrator.Environment, orchestrator.PreviewDeployment) (*orchestrator.WorkflowReference, error) {

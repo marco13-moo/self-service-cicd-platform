@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"regexp"
@@ -131,6 +132,10 @@ func (r *SCMCommandReconciler) ProcessOne(ctx context.Context, now time.Time) (b
 		return false, err
 	}
 	tenantID := api.TenantID(command.TenantID)
+	if tenantID == "" {
+		tenantID = api.DefaultTenantID
+		command.TenantID = string(tenantID)
+	}
 	tenantStore := r.store.ForTenant(tenantID)
 	tenantCommands := r.commands
 	if scoped, ok := r.commands.(api.TenantScopedCommandStore); ok {
@@ -155,7 +160,7 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.Service
 			return err
 		}
 		if errors.Is(err, api.ErrEnvironmentNotFound) {
-			env, err = r.orchestrator.Create(ctx, orchestrator.EnvironmentSpec{Name: command.Environment, Service: service.Name, TTL: r.previewTTL})
+			env, err = r.orchestrator.Create(ctx, orchestrator.EnvironmentSpec{TenantID: command.TenantID, Name: command.Environment, Namespace: orchestrator.NamespaceForTenant(command.TenantID, command.Environment), Service: service.Name, TTL: r.previewTTL})
 			if err != nil {
 				return err
 			}
@@ -166,7 +171,21 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.Service
 				return err
 			}
 		}
-		deployment, err := r.previewDeployment(service, env.Spec.Name, command.HeadSHA)
+		// The deployment workflow runs as a ServiceAccount provisioned by the
+		// create workflow. Refuse to race Pod admission against that identity and
+		// its namespace-local RoleBinding; durable command retry will resume once
+		// namespace provisioning is authoritative.
+		createStatus, err := r.orchestrator.GetCreateStatus(ctx, env)
+		if err != nil {
+			return fmt.Errorf("observe namespace provisioning: %w", err)
+		}
+		if createStatus == nil || createStatus.Phase == wf.WorkflowPending || createStatus.Phase == wf.WorkflowRunning || createStatus.Phase == "" {
+			return fmt.Errorf("namespace provisioning workflow has not completed")
+		}
+		if createStatus.Phase != wf.WorkflowSucceeded {
+			return fmt.Errorf("namespace provisioning workflow %s: %s", createStatus.Phase, createStatus.Message)
+		}
+		deployment, err := r.previewDeployment(service, env.Spec.Namespace, command.HeadSHA)
 		if err != nil {
 			return err
 		}
@@ -218,7 +237,7 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.Service
 		if env.DestroyWorkflow != nil {
 			return nil
 		}
-		ref, err := r.orchestrator.Destroy(ctx, command.Environment, service.Name)
+		ref, err := r.orchestrator.Destroy(ctx, env.Spec.Namespace, service.Name, command.TenantID)
 		if err != nil {
 			return err
 		}
@@ -244,6 +263,10 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("Cosign image, signer, public-key Secret, and policy predicate type are required")
 	}
 	signingProfile := strings.ToLower(strings.TrimSpace(r.preview.SigningProfile))
+	tenantID := string(service.TenantID)
+	if tenantID == "" {
+		tenantID = string(api.DefaultTenantID)
+	}
 	if signingProfile != "key" && signingProfile != "kms" {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_SIGNING_PROFILE must be key or kms")
 	}
@@ -252,6 +275,9 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 	}
 	if signingProfile == "kms" && !kmsSigner.MatchString(strings.TrimSpace(r.preview.CosignSigner)) {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_COSIGN_SIGNER must be a supported KMS URI for the kms signing profile")
+	}
+	if signingProfile == "kms" && !strings.Contains(r.preview.CosignSigner, "{tenant}") {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("PREVIEW_COSIGN_SIGNER must contain {tenant} for tenant-partitioned KMS signing")
 	}
 	authMode := strings.ToLower(strings.TrimSpace(r.preview.CosignAuthMode))
 	if authMode != "ambient" && authMode != "vault-kubernetes" {
@@ -287,7 +313,8 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 	if !commitSHA.MatchString(sha) {
 		return orchestrator.PreviewDeployment{}, fmt.Errorf("source revision must be a hexadecimal commit SHA")
 	}
-	imageRef := repository + "/" + imageName + ":" + strings.ToLower(sha)
+	tenantRepository := repository + "/" + tenantID
+	imageRef := tenantRepository + "/" + imageName + ":" + strings.ToLower(sha)
 	baseDomain := strings.Trim(strings.TrimSpace(r.preview.BaseDomain), ".")
 	host := ""
 	previewURL := fmt.Sprintf("http://preview.%s.svc.cluster.local:%d", environment, port)
@@ -300,17 +327,36 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		previewURL = scheme + "://" + host
 	}
 	return orchestrator.PreviewDeployment{
-		ProjectType: service.ProjectType, ImageRef: imageRef, ImageRepository: repository + "/" + imageName, ContainerPort: port,
+		ProjectType: service.ProjectType, ImageRef: imageRef, ImageRepository: tenantRepository + "/" + imageName, ContainerPort: port,
 		Dockerfile: dockerfile, PreviewHost: host, PreviewURL: previewURL,
 		BuilderImage: r.preview.BuilderImage, RegistrySecretName: r.preview.RegistrySecretName,
 		RegistryInsecure: r.preview.RegistryInsecure,
 		ScannerImage:     r.preview.ScannerImage, VulnerabilitySeverities: severities,
 		IgnoreUnfixed:  r.preview.IgnoreUnfixed,
 		TargetPlatform: platform,
-		CosignImage:    r.preview.CosignImage, CosignSigner: r.preview.CosignSigner, SigningProfile: signingProfile, CosignPrivateKeySecret: r.preview.CosignPrivateKeySecret,
+		CosignImage:    r.preview.CosignImage, CosignSigner: tenantSigner(r.preview.CosignSigner, tenantID, signingProfile), SigningProfile: signingProfile, CosignPrivateKeySecret: tenantArtifactName(r.preview.CosignPrivateKeySecret, tenantID),
 		CosignAuthMode: authMode, VaultImage: r.preview.VaultImage, VaultAddress: r.preview.VaultAddress, VaultRole: r.preview.VaultRole,
-		CosignPublicKeySecret: r.preview.CosignPublicKeySecret, PolicyPredicateType: r.preview.PolicyPredicateType, VEXConfigMap: r.preview.VEXConfigMap,
+		CosignPublicKeySecret: tenantArtifactName(r.preview.CosignPublicKeySecret, tenantID), PolicyPredicateType: r.preview.PolicyPredicateType, VEXConfigMap: tenantArtifactName(r.preview.VEXConfigMap, tenantID),
 	}, nil
+}
+
+func tenantSigner(signer, tenantID, profile string) string {
+	if profile == "kms" {
+		return strings.ReplaceAll(signer, "{tenant}", tenantID)
+	}
+	return signer
+}
+
+func tenantArtifactName(base, tenantID string) string {
+	if base == "" {
+		return base
+	}
+	value := strings.Trim(strings.ToLower(base+"-"+tenantID), "-")
+	if len(value) <= 63 {
+		return value
+	}
+	digest := sha256.Sum256([]byte(value))
+	return strings.TrimRight(value[:54], "-") + "-" + fmt.Sprintf("%x", digest[:4])
 }
 
 func workflowOutput(status *wf.WorkflowStatus, name string) string {

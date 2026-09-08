@@ -17,9 +17,9 @@ metadata:
   name: argo-workflow-executor
   namespace: argo
 subjects:
-  - kind: ServiceAccount
-    name: argo-env-admin
-    namespace: argo
+  - kind: Group
+    name: system:serviceaccounts:argo
+    apiGroup: rbac.authorization.k8s.io
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

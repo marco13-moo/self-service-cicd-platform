@@ -14,9 +14,11 @@ spec:
     - expression: >-
         !object.metadata.name.startsWith('preview-vex-') ||
         (has(object.metadata.labels) &&
+         'platform.tenant' in object.metadata.labels &&
          'platform.openvex.dev/governed' in object.metadata.labels &&
-         object.metadata.labels['platform.openvex.dev/governed'] == 'true')
-      message: preview-vex-* ConfigMaps must be explicitly governed
+         object.metadata.labels['platform.openvex.dev/governed'] == 'true' &&
+         object.metadata.name.endsWith('-' + object.metadata.labels['platform.tenant']))
+      message: preview-vex-* ConfigMaps must be governed and suffixed by their tenant identity
     - expression: >-
         !object.metadata.name.startsWith('preview-vex-') ||
         (has(object.metadata.annotations) &&

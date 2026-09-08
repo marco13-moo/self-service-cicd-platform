@@ -70,6 +70,45 @@ The JSON backend remains a single-process development mode. It implements the
 same tenant keying and filtering semantics, but PostgreSQL RLS is the production
 security boundary.
 
+### Kubernetes namespaces are tenant-owned security domains
+
+Physical preview namespace names incorporate both the tenant and logical
+environment identities, with a stable hash suffix when the DNS label would
+exceed 63 characters. Namespace creation is idempotent only when the existing
+`platform.tenant` owner label matches the authenticated tenant; an ownership
+conflict fails closed. Logical names remain API-visible while the physical name
+is persisted in environment state and used for every workflow operation.
+
+Each namespace is provisioned with a tenant-specific Argo ServiceAccount and a
+namespace-local deployer RoleBinding. The cluster-scoped provisioner may create
+namespace boundary resources, but cannot deploy application workloads. Tenant
+deployers cannot mutate another namespace. Preview Pods run through a separate,
+tokenless runtime ServiceAccount.
+
+Every tenant namespace receives a ResourceQuota, a container LimitRange,
+default-deny ingress and egress NetworkPolicies, explicit DNS and same-namespace
+allow rules, and an ingress-controller allow rule. Kubernetes Pod Security
+Admission is set to `restricted` for enforcement, audit, and warning. Workloads
+run non-root, use RuntimeDefault seccomp, drop all capabilities, disable
+privilege escalation, and declare resource requests and limits.
+
+### Artifact trust and exceptions are tenant-partitioned
+
+Preview repositories include the tenant identity, and production KMS signer
+configuration must contain a `{tenant}` placeholder. Private-key, public-key,
+and VEX object names are derived independently per tenant. Admission validates
+tenant labels, digest-pinned signatures against the tenant public key, and the
+signed vulnerability-policy predicate whose tenant identity must match the
+workload namespace.
+
+VEX governance requires an unexpired approval record, ticket, environment, and
+tenant identity; the ConfigMap name and label must agree with that tenant.
+Admission governance applies the same ownership invariant to signing Secrets.
+Scheduled evidence re-verification selects each Deployment's tenant and resolves
+only that tenant's trust root. Quarantine annotations retain the tenant and
+artifact subject, producing a namespace-local audit trail that can be exported
+by the cluster audit sink.
+
 ## Consequences
 
 - Tenants may use identical service and environment names without collision.
@@ -82,6 +121,10 @@ security boundary.
   grants, and authoritative state as one aggregate.
 - Static bearer-token distribution and rotation remain an operational burden;
   federated identity is the expected successor.
+- Namespace-per-environment isolation consumes more API objects and requires a
+  NetworkPolicy-enforcing CNI and Pod Security Admission enabled on the cluster.
+- Tenant trust roots and exception objects can rotate independently; operators
+  must provision them before admitting that tenant's first deployment.
 
 ## Operational invariants
 
@@ -92,6 +135,10 @@ security boundary.
 - Never transfer repository ownership by directly editing `tenant_id`; use a
   future audited transfer transaction that quiesces webhooks and commands.
 - Never treat application predicates as a substitute for RLS conformance.
+- Never reuse a signing key, VEX object, image path, or deployer ServiceAccount
+  across tenants.
+- Never weaken namespace Pod Security or default-deny networking to accommodate
+  an application; grant the narrowest explicit exception through review.
 
 ## Conformance
 
@@ -101,3 +148,9 @@ creates a non-superuser application role and proves RLS against source and
 restored PostgreSQL authorities. The suite also replays deduplication, command
 leasing, replica termination, and reconciliation so tenant isolation cannot
 regress the ADR 0017 availability guarantees.
+
+`scripts/validate-tenant-kubernetes-isolation.sh` provisions two disposable
+tenant namespaces and proves owner labels, cross-tenant RBAC denial, quota and
+default-deny installation, and server-side rejection of a privileged Pod. The
+workflow and admission manifests are additionally server-side dry-run validated
+against a cluster containing Argo Workflows and Kyverno CRDs.

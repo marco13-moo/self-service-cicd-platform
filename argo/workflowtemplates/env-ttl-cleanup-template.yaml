@@ -9,6 +9,7 @@ spec:
   arguments:
     parameters:
       - name: env_name
+      - name: tenant_id
       - name: expires_at
       - name: ttl_duration
   templates:
@@ -28,5 +29,11 @@ spec:
         args:
           - |
             set -e
-            echo "TTL expired at {{workflow.parameters.expires_at}}; deleting {{workflow.parameters.env_name}}"
-            kubectl delete namespace {{workflow.parameters.env_name}} --ignore-not-found
+            namespace='{{workflow.parameters.env_name}}'
+            tenant='{{workflow.parameters.tenant_id}}'
+            echo "TTL expired at {{workflow.parameters.expires_at}}; checking ${namespace} ownership"
+            if kubectl get namespace "$namespace" >/dev/null 2>&1; then
+              owner=$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.labels.platform\.tenant}')
+              test "$owner" = "$tenant" || { echo "namespace ownership conflict" >&2; exit 1; }
+              kubectl delete namespace "$namespace"
+            fi

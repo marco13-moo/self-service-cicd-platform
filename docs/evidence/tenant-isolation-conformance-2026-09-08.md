@@ -32,12 +32,17 @@ ok  .../internal/reconciler
 ok  .../internal/api
 ok  .../internal/reconciler
 Control-plane replica handoff and PostgreSQL backup/restore conformance passed
+
+./scripts/validate-tenant-kubernetes-isolation.sh
+Tenant namespace ownership, cross-tenant RBAC denial, quota installation,
+default-deny networking, and restricted Pod Security conformance passed
 ```
 
 ## Boundary
 
-This evidence validates the bootstrap bearer-token adapter, application
-authorization, and database row isolation. Namespace ownership, quotas,
-NetworkPolicies, Pod Security, tenant-specific workload identities, federated
-OIDC, and policy partitioning are intentionally deferred to the next ADR 0018
-implementation slice.
+This evidence validates the bootstrap bearer-token adapter, application and
+database isolation, Kubernetes authorization boundaries, and admission
+configuration. It proves NetworkPolicy installation but does not claim packet-
+level isolation unless the target cluster uses a NetworkPolicy-enforcing CNI.
+Federated OIDC and centralized audit-log export remain operational integration
+work rather than defects in the tenant domain model.

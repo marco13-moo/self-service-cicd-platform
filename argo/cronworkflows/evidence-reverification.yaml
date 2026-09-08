@@ -19,8 +19,6 @@ spec:
           value: ghcr.io/sigstore/cosign/cosign:v2.6.4
         - name: policy_predicate_type
           value: https://self-service-cicd.dev/attestations/vulnerability-policy/v1
-        - name: public_key_secret
-          value: preview-cosign-public
         - name: registry_insecure
           value: "false"
         - name: deployment_selector
@@ -52,10 +50,12 @@ spec:
             }
             kubectl get deployment -A \
               -l '{{workflow.parameters.deployment_selector}}' \
-              -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.template.spec.containers[0].image}{"\n"}{end}' \
+              -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.template.spec.containers[0].image}{" "}{.metadata.labels.platform\.tenant}{"\n"}{end}' \
               > "$deployments"
-            while read -r namespace deployment image; do
+            while read -r namespace deployment image tenant; do
               [ -n "$namespace" ] || continue
+              [ -n "$tenant" ] || { echo "deployment ${namespace}/${deployment} has no tenant identity" >&2; failures=$((failures + 1)); continue; }
+              public_key_secret="preview-cosign-public-${tenant}"
               sequence=$((sequence + 1))
               case "$image" in
                 *@sha256:*) ;;
@@ -71,6 +71,7 @@ spec:
               name: $job
               labels:
                 platform.evidence-reverification-run: "$run"
+                platform.tenant: "$tenant"
             spec:
               backoffLimit: 0
               template:
@@ -79,7 +80,7 @@ spec:
                   volumes:
                     - name: public-key
                       secret:
-                        secretName: '{{workflow.parameters.public_key_secret}}'
+                        secretName: "$public_key_secret"
                   containers:
                     - name: cosign
                       image: '{{workflow.parameters.cosign_image}}'
@@ -103,6 +104,7 @@ spec:
               name: $job
               labels:
                 platform.evidence-reverification-run: "$run"
+                platform.tenant: "$tenant"
             spec:
               backoffLimit: 0
               template:
@@ -111,7 +113,7 @@ spec:
                   volumes:
                     - name: public-key
                       secret:
-                        secretName: '{{workflow.parameters.public_key_secret}}'
+                        secretName: "$public_key_secret"
                   containers:
                     - name: cosign
                       image: '{{workflow.parameters.cosign_image}}'
@@ -133,6 +135,7 @@ spec:
                 observed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
                 kubectl label namespace "$namespace" platform.preview-quarantine=true --overwrite
                 kubectl annotate namespace "$namespace" \
+                  platform.audit/tenant="$tenant" \
                   platform.preview-quarantine-reason="$reason" \
                   platform.preview-quarantine-observed-at="$observed" --overwrite
                 kubectl -n "$namespace" annotate deployment "$deployment" \

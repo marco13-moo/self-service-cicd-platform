@@ -26,6 +26,7 @@ vault_exec=(kubectl -n "$vault_namespace" exec "$vault_pod" -- env VAULT_ADDR=ht
 candidate_public=$("${vault_exec[@]}" read -format=json "transit/keys/$candidate_key" | jq -r '.data.keys["1"].public_key')
 test -n "$candidate_public" && test "$candidate_public" != null
 kubectl -n argo create secret generic preview-cosign-public-candidate-conformance \
+  --labels platform.tenant=conformance \
   --from-literal=cosign.pub="$candidate_public" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 policy_file=$(mktemp /tmp/vault-kms-rotation-policy.XXXXXX)
@@ -75,6 +76,7 @@ kubectl apply --dry-run=server -f "$pod_manifest" >/dev/null
 # Promotion updates the canonical verifier only after direct verification and
 # admission have succeeded. The old key remains in Vault for audited rollback.
 kubectl -n argo create secret generic preview-cosign-public-conformance \
+  --labels platform.tenant=conformance \
   --from-literal=cosign.pub="$candidate_public" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl apply -f "$repo_root/infra/k8s/vault-kms-policy.yaml" >/dev/null
 kubectl -n argo delete secret preview-cosign-public-candidate-conformance --ignore-not-found >/dev/null

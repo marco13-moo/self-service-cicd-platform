@@ -31,6 +31,7 @@ const (
 	LabelEnvironment      = "platform.environment"
 	LabelTrigger          = "platform.trigger"
 	LabelWorkflowTemplate = "platform.workflow.template"
+	LabelTenant           = "platform.tenant"
 )
 
 //
@@ -79,6 +80,11 @@ func NewLabelBuilder(
 
 func (b *LabelBuilder) WithEnvironment(env string) *LabelBuilder {
 	b.labels[LabelEnvironment] = env
+	return b
+}
+
+func (b *LabelBuilder) WithTenant(tenantID string) *LabelBuilder {
+	b.labels[LabelTenant] = tenantID
 	return b
 }
 

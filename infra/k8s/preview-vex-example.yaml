@@ -1,10 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: preview-vex-example
+  name: preview-vex-example-example-tenant
   namespace: argo
   labels:
     platform.openvex.dev/governed: "true"
+    platform.tenant: example-tenant
   annotations:
     platform.openvex.dev/approved-by: security@example.com
     platform.openvex.dev/ticket: SEC-0000
@@ -14,6 +15,7 @@ data:
     approved_by=security@example.com
     ticket=SEC-0000
     expires_at=2099-01-01T00:00:00Z
+    tenant_id=example-tenant
   openvex.json: |
     {
       "@context": "https://openvex.dev/ns/v0.2.0",

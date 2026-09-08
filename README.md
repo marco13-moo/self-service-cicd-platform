@@ -44,7 +44,9 @@ interchangeable, gracefully draining replicas.
 
 ADR 0018 introduces immutable tenant ownership, role-gated API middleware,
 tenant-scoped webhook and reconciliation state, composite PostgreSQL identities,
-and forced Row-Level Security verified through a non-superuser database role.
+forced Row-Level Security, tenant-owned Kubernetes namespaces, least-privilege
+tenant deployer identities, quota and network isolation, restricted Pod Security,
+and tenant-partitioned artifact trust, exceptions, audit metadata, and evidence.
 
 ## Architecture
 
@@ -138,16 +140,16 @@ The deployment block is optional; its defaults are port `8080` and a root-level
 | `PREVIEW_VULNERABILITY_IGNORE_UNFIXED` | `true` | Ignore blocking findings that have no available fix |
 | `PREVIEW_TARGET_PLATFORM` | `linux/amd64` | OCI build and scan platform; use `linux/arm64` for ARM clusters |
 | `PREVIEW_COSIGN_IMAGE` | `ghcr.io/sigstore/cosign/cosign:v2.6.4` | Maintained Cosign 2 executor used for digest signing and Kyverno-compatible verification |
-| `PREVIEW_COSIGN_SIGNER` | `/cosign-private/cosign.key` | Cosign file or KMS signer URI; production uses workload-identity-authorized KMS |
+| `PREVIEW_COSIGN_SIGNER` | `/cosign-private/cosign.key` | Cosign file or KMS signer URI; multi-tenant KMS profiles must contain a `{tenant}` placeholder |
 | `PREVIEW_SIGNING_PROFILE` | `key` | `key` for development or `kms` to require a supported KMS signer URI |
 | `PREVIEW_COSIGN_AUTH_MODE` | `ambient` | `ambient` cloud credentials or short-lived `vault-kubernetes` authentication |
 | `PREVIEW_VAULT_IMAGE` | `hashicorp/vault:1.20.4` | Vault client used only by the Kubernetes login init container |
 | `PREVIEW_VAULT_ADDR` | unset | Required Vault/OpenBao API address for `vault-kubernetes` authentication |
 | `PREVIEW_VAULT_ROLE` | `self-service-cicd-signer` | Vault Kubernetes-auth role bound to the Argo ServiceAccount |
-| `PREVIEW_COSIGN_PRIVATE_KEY_SECRET` | `preview-cosign-private` | Argo Secret containing `cosign.key` and optional `password` |
-| `PREVIEW_COSIGN_PUBLIC_KEY_SECRET` | `preview-cosign-public` | Public-only Argo Secret containing `cosign.pub` |
+| `PREVIEW_COSIGN_PRIVATE_KEY_SECRET` | `preview-cosign-private` | Base name for the tenant-suffixed Argo Secret containing `cosign.key` and optional `password` |
+| `PREVIEW_COSIGN_PUBLIC_KEY_SECRET` | `preview-cosign-public` | Base name for the tenant-suffixed public-only Argo Secret containing `cosign.pub` |
 | `PREVIEW_POLICY_PREDICATE_TYPE` | `https://self-service-cicd.dev/attestations/vulnerability-policy/v1` | Versioned signed vulnerability-policy predicate type |
-| `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Optional governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
+| `PREVIEW_VEX_CONFIGMAP` | `preview-vex-none` | Base name for an optional tenant-suffixed governed `preview-vex-*` ConfigMap; the default intentionally does not exist |
 | `DATABASE_URL` | unset | PostgreSQL authority for all production state; required by the Kubernetes Deployment |
 | `TENANT_AUTH_TOKENS` | unset | Required Secret-backed JSON map of bearer tokens to `{subject,tenant_id,role}` principals |
 | `CONTROL_PLANE_ADMIN_TOKEN` | unset | Bearer token enabling administrative command inspection |
@@ -172,6 +174,19 @@ For the bootstrap tenant credential shape, copy
 replace the illustrative token through a secret manager, and apply it without
 committing the rendered Secret. Production PostgreSQL API credentials must use
 a non-superuser role because superusers bypass Row-Level Security.
+
+Preview namespaces are deterministic tenant-owned security domains. The create
+workflow installs the tenant deployer RoleBinding, quota and limits, default-deny
+networking, restricted Pod Security labels, and tenant-local admission policy.
+Run the disposable two-tenant escape test with:
+
+```bash
+./scripts/validate-tenant-kubernetes-isolation.sh
+```
+
+The test proves that tenant alpha can deploy only into its own namespace and
+that server-side Pod Security rejects a privileged workload. NetworkPolicy
+enforcement in transit additionally requires a conformant CNI.
 
 For production signing, copy
 [`preview-trust-config-example.yaml`](infra/k8s/preview-trust-config-example.yaml),
@@ -264,5 +279,8 @@ retention are specified in [`ADR 0015`](docs/adr/0015-production-trust-and-evide
 Evidence retention, overlap-safe rotation, continuous re-verification,
 quarantine, and disaster recovery are specified in
 [`ADR 0016`](docs/adr/0016-evidence-retention-rotation-and-recovery.md).
+Tenant identity, database and Kubernetes isolation, and tenant-partitioned
+artifact governance are specified in
+[`ADR 0018`](docs/adr/0018-tenant-identity-authorization-and-row-isolation.md).
 Operational execution and rollback are documented in the
 [`artifact evidence runbook`](docs/runbooks/artifact-evidence-operations.md).

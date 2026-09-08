@@ -35,6 +35,9 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	if spec.ExpiresAt.IsZero() {
 		spec.ExpiresAt = time.Now().UTC().Add(spec.TTL)
 	}
+	if spec.Namespace == "" {
+		spec.Namespace = NamespaceForTenant(spec.TenantID, spec.Name)
+	}
 	expiresAt := spec.ExpiresAt.UTC().Format(time.RFC3339)
 
 	//-----------------------------------------
@@ -42,9 +45,12 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	//-----------------------------------------
 
 	createParams := map[string]string{
-		"env_name":   spec.Name,
-		"service":    spec.Service,
-		"expires_at": expiresAt,
+		"env_name":               spec.Namespace,
+		"environment_name":       spec.Name,
+		"tenant_id":              spec.TenantID,
+		"tenant_service_account": ServiceAccountForTenant(spec.TenantID),
+		"service":                spec.Service,
+		"expires_at":             expiresAt,
 	}
 
 	//-----------------------------------------
@@ -55,6 +61,7 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		WorkflowTypeEnvCreate,
 		spec.Service,
 	).
+		WithTenant(spec.TenantID).
 		WithEnvironment(spec.Name).
 		WithTrigger(TriggerAPI).
 		WithTemplate("env-create-template").
@@ -80,7 +87,8 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 	//-----------------------------------------
 
 	ttlParams := map[string]string{
-		"env_name":     spec.Name,
+		"env_name":     spec.Namespace,
+		"tenant_id":    spec.TenantID,
 		"expires_at":   expiresAt,
 		"ttl_duration": spec.TTL.String(),
 	}
@@ -89,6 +97,7 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		WorkflowTypeEnvTTL,
 		spec.Service,
 	).
+		WithTenant(spec.TenantID).
 		WithEnvironment(spec.Name).
 		WithTrigger(TriggerSystem).
 		WithTemplate("env-ttl-cleanup-template").
@@ -124,16 +133,19 @@ func (e *ArgoEnvironmentOrchestrator) Destroy(
 	ctx context.Context,
 	name string,
 	service string,
+	tenantID string,
 ) (*WorkflowReference, error) {
 
 	params := map[string]string{
-		"env_name": name,
+		"env_name":  name,
+		"tenant_id": tenantID,
 	}
 
 	labels := NewLabelBuilder(
 		WorkflowTypeEnvDestroy,
 		service,
 	).
+		WithTenant(tenantID).
 		WithEnvironment(name).
 		WithTrigger(TriggerAPI).
 		WithTemplate("env-destroy-template").
@@ -166,7 +178,8 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 		cloneURL = env.Spec.Source.Repository
 	}
 	params := map[string]string{
-		"env_name": env.Spec.Name, "service": env.Spec.Service, "repository": cloneURL,
+		"env_name": env.Spec.Namespace, "environment_name": env.Spec.Name, "tenant_id": env.Spec.TenantID,
+		"tenant_service_account": ServiceAccountForTenant(env.Spec.TenantID), "service": env.Spec.Service, "repository": cloneURL,
 		"commit_sha": env.Spec.Source.DesiredSHA, "project_type": deployment.ProjectType,
 		"image_ref": deployment.ImageRef, "container_port": fmt.Sprintf("%d", deployment.ContainerPort),
 		"image_repository": deployment.ImageRepository,
@@ -190,7 +203,7 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 		"policy_predicate_type":     deployment.PolicyPredicateType,
 		"vex_config_map":            deployment.VEXConfigMap,
 	}
-	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
+	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithTenant(env.Spec.TenantID).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
 	workflow, err := e.exec.SubmitFromTemplate(ctx, "env-deploy-template", "env-deploy-", params, labels)
 	if err != nil {
 		return nil, fmt.Errorf("submit environment deployment workflow: %w", err)

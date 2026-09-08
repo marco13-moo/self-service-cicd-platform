@@ -4,11 +4,14 @@ metadata:
   name: env-deploy-template
   namespace: argo
 spec:
-  serviceAccountName: argo-env-admin
+  serviceAccountName: "{{workflow.parameters.tenant_service_account}}"
   entrypoint: build-and-deploy
   arguments:
     parameters:
       - name: env_name
+      - name: environment_name
+      - name: tenant_id
+      - name: tenant_service_account
       - name: service
       - name: repository
       - name: commit_sha
@@ -194,7 +197,8 @@ spec:
               expires_at=$(sed -n 's/^expires_at=//p' /vex/governance.env)
               approved_by=$(sed -n 's/^approved_by=//p' /vex/governance.env)
               ticket=$(sed -n 's/^ticket=//p' /vex/governance.env)
-              test -n "$expires_at" && test -n "$approved_by" && test -n "$ticket"
+              vex_tenant=$(sed -n 's/^tenant_id=//p' /vex/governance.env)
+              test -n "$expires_at" && test -n "$approved_by" && test -n "$ticket" && test "$vex_tenant" = '{{workflow.parameters.tenant_id}}'
               expires_epoch=$(date -u -d "$expires_at" +%s)
               test "$expires_epoch" -gt "$(date -u +%s)"
               vex="--vex /vex/openvex.json"
@@ -300,6 +304,7 @@ spec:
                   "result": "passed",
                   "subjectDigest": "{{inputs.parameters.image_digest}}",
                   "sourceRevision": "{{workflow.parameters.commit_sha}}",
+                  "tenantID": "{{workflow.parameters.tenant_id}}",
                   "scanner": "{{workflow.parameters.scanner_image}}",
                   "signingProfile": "{{workflow.parameters.signing_profile}}",
                   "signerAuthentication": "{{workflow.parameters.cosign_auth_mode}}",
@@ -452,8 +457,9 @@ spec:
             labels:
               app.kubernetes.io/name: preview
               app.kubernetes.io/managed-by: self-service-cicd
+              platform.tenant: '{{workflow.parameters.tenant_id}}'
               platform.service: '{{workflow.parameters.service}}'
-              platform.environment: '{{workflow.parameters.env_name}}'
+              platform.environment: '{{workflow.parameters.environment_name}}'
               platform.revision: '{{workflow.parameters.commit_sha}}'
               platform.project-type: '{{workflow.parameters.project_type}}'
           spec:
@@ -465,14 +471,25 @@ spec:
               metadata:
                 labels:
                   app.kubernetes.io/name: preview
+                  platform.tenant: '{{workflow.parameters.tenant_id}}'
                   platform.service: '{{workflow.parameters.service}}'
-                  platform.environment: '{{workflow.parameters.env_name}}'
+                  platform.environment: '{{workflow.parameters.environment_name}}'
                   platform.revision: '{{workflow.parameters.commit_sha}}'
               spec:
+                serviceAccountName: preview-runtime
+                automountServiceAccountToken: false
+                securityContext:
+                  runAsNonRoot: true
+                  seccompProfile:
+                    type: RuntimeDefault
                 containers:
                   - name: application
                     image: ${image}
                     imagePullPolicy: Always
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop: ["ALL"]
                     ports:
                       - name: http
                         containerPort: ${port}
@@ -482,11 +499,20 @@ spec:
                     livenessProbe:
                       tcpSocket:
                         port: http
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+                      limits:
+                        cpu: "1"
+                        memory: 1Gi
           ---
           apiVersion: v1
           kind: Service
           metadata:
             name: preview
+            labels:
+              platform.tenant: '{{workflow.parameters.tenant_id}}'
           spec:
             selector:
               app.kubernetes.io/name: preview
@@ -501,6 +527,8 @@ spec:
           kind: Ingress
           metadata:
             name: preview
+            labels:
+              platform.tenant: '{{workflow.parameters.tenant_id}}'
           spec:
             rules:
               - host: ${host}

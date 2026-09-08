@@ -8,7 +8,7 @@ data:
   cosign-auth-mode: vault-kubernetes
   # Replace with the selected provider's non-secret KMS key identifier. The
   # Argo ServiceAccount obtains authorization through workload identity.
-  cosign-signer: hashivault://preview-signing
+  cosign-signer: hashivault://preview-signing-{tenant}
   vault-address: https://vault.vault.svc:8200
   vault-role: self-service-cicd-signer
   policy-predicate-type: https://self-service-cicd.dev/attestations/vulnerability-policy/v1

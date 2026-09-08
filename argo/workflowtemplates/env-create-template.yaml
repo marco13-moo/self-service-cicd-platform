@@ -6,6 +6,14 @@ metadata:
 spec:
   serviceAccountName: argo-env-admin
   entrypoint: create-namespace
+  arguments:
+    parameters:
+      - name: env_name
+      - name: environment_name
+      - name: service
+      - name: tenant_id
+      - name: tenant_service_account
+      - name: expires_at
   templates:
     - name: create-namespace
       script:
@@ -14,13 +22,205 @@ spec:
         command: [sh]
         source: |
           set -e
-          echo "Ensuring namespace {{workflow.parameters.env_name}} exists"
+          namespace='{{workflow.parameters.env_name}}'
+          tenant='{{workflow.parameters.tenant_id}}'
+          public_key_secret="preview-cosign-public-${tenant}"
+          logical_environment='{{workflow.parameters.environment_name}}'
+          tenant_sa='{{workflow.parameters.tenant_service_account}}'
+          if kubectl get namespace "$namespace" >/dev/null 2>&1; then
+            owner=$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.labels.platform\.tenant}')
+            test "$owner" = "$tenant" || { echo "namespace ownership conflict" >&2; exit 1; }
+          else
+            kubectl create namespace "$namespace"
+          fi
 
-          kubectl get namespace {{workflow.parameters.env_name}} \
-            || kubectl create namespace {{workflow.parameters.env_name}}
-
-          kubectl label namespace {{workflow.parameters.env_name}} \
+          kubectl label namespace "$namespace" \
+            platform.tenant="$tenant" \
+            platform.environment="$logical_environment" \
             service={{workflow.parameters.service}} \
             managed-by=self-service-cicd \
             platform.preview-signature-policy=enforced \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/enforce-version=latest \
+            pod-security.kubernetes.io/audit=restricted \
+            pod-security.kubernetes.io/warn=restricted \
             --overwrite
+          kubectl annotate namespace "$namespace" \
+            platform.audit/tenant="$tenant" \
+            platform.audit/environment="$logical_environment" \
+            platform.audit/expires-at='{{workflow.parameters.expires_at}}' --overwrite
+
+          kubectl -n argo get serviceaccount "$tenant_sa" >/dev/null 2>&1 \
+            || kubectl -n argo create serviceaccount "$tenant_sa"
+          kubectl -n argo label serviceaccount "$tenant_sa" platform.tenant="$tenant" managed-by=self-service-cicd --overwrite
+
+          kubectl -n "$namespace" apply -f - <<EOF
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: preview-runtime
+            labels:
+              platform.tenant: "$tenant"
+          automountServiceAccountToken: false
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: tenant-deployer
+          rules:
+            - apiGroups: [""]
+              resources: ["services"]
+              verbs: ["get", "create", "update", "patch", "delete"]
+            - apiGroups: ["apps"]
+              resources: ["deployments"]
+              verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+            - apiGroups: ["networking.k8s.io"]
+              resources: ["ingresses"]
+              verbs: ["get", "create", "update", "patch", "delete"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: tenant-deployer
+          subjects:
+            - kind: ServiceAccount
+              name: "$tenant_sa"
+              namespace: argo
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: tenant-deployer
+          ---
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: tenant-preview-budget
+          spec:
+            hard:
+              requests.cpu: "2"
+              requests.memory: 2Gi
+              limits.cpu: "4"
+              limits.memory: 4Gi
+              pods: "10"
+              services: "4"
+              persistentvolumeclaims: "0"
+          ---
+          apiVersion: v1
+          kind: LimitRange
+          metadata:
+            name: tenant-preview-defaults
+          spec:
+            limits:
+              - type: Container
+                defaultRequest:
+                  cpu: 100m
+                  memory: 128Mi
+                default:
+                  cpu: "1"
+                  memory: 1Gi
+                max:
+                  cpu: "2"
+                  memory: 2Gi
+          EOF
+          kubectl -n "$namespace" apply -f - <<EOF
+          apiVersion: kyverno.io/v1
+          kind: Policy
+          metadata:
+            name: tenant-preview-boundary
+            labels:
+              platform.tenant: "$tenant"
+          spec:
+            background: true
+            webhookConfiguration:
+              failurePolicy: Fail
+              timeoutSeconds: 30
+            rules:
+              - name: require-tenant-identity
+                match:
+                  any:
+                    - resources:
+                        kinds: [Pod, Deployment, Service, Ingress]
+                validate:
+                  failureAction: Enforce
+                  message: workload identity must match namespace tenant ownership
+                  pattern:
+                    metadata:
+                      labels:
+                        platform.tenant: "$tenant"
+              - name: verify-tenant-preview-image
+                match:
+                  any:
+                    - resources:
+                        kinds: [Pod]
+                        selector:
+                          matchLabels:
+                            app.kubernetes.io/name: preview
+                verifyImages:
+                  - imageReferences: ["*"]
+                    failureAction: Enforce
+                    mutateDigest: false
+                    required: true
+                    verifyDigest: true
+                    attestors:
+                      - entries:
+                          - keys:
+                              publicKeys: "k8s://argo/$public_key_secret"
+                              rekor:
+                                ignoreTlog: true
+          EOF
+          kubectl -n "$namespace" apply -f - <<EOF
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: default-deny
+          spec:
+            podSelector: {}
+            policyTypes: [Ingress, Egress]
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-dns
+          spec:
+            podSelector: {}
+            policyTypes: [Egress]
+            egress:
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                ports:
+                  - protocol: UDP
+                    port: 53
+                  - protocol: TCP
+                    port: 53
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-same-namespace
+          spec:
+            podSelector: {}
+            policyTypes: [Ingress, Egress]
+            ingress:
+              - from:
+                  - podSelector: {}
+            egress:
+              - to:
+                  - podSelector: {}
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-platform-ingress
+          spec:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: preview
+            policyTypes: [Ingress]
+            ingress:
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        platform.preview-ingress: "true"
+          EOF
