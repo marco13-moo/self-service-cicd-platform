@@ -195,6 +195,68 @@ func (h *Handlers) ListServices(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(services)
 }
 
+// CatalogService is deliberately presentation-oriented: it gives developers a
+// stable inventory view without exposing persistence documents or credentials.
+type CatalogService struct {
+	Name                string                 `json:"name"`
+	Owner               string                 `json:"owner"`
+	ProjectType         string                 `json:"project_type"`
+	Repository          scm.RepositoryIdentity `json:"repository"`
+	PreviewEnvironments int                    `json:"preview_environments"`
+}
+
+func (h *Handlers) ListCatalogServices(w http.ResponseWriter, r *http.Request) {
+	store := h.scopedStore(r)
+	counts := make(map[string]int)
+	for _, environment := range store.ListEnvironments() {
+		counts[environment.Spec.Service]++
+	}
+	result := make([]CatalogService, 0)
+	for _, service := range store.List() {
+		result = append(result, CatalogService{Name: service.Name, Owner: service.Owner,
+			ProjectType: service.ProjectType, Repository: service.Repository,
+			PreviewEnvironments: counts[service.Name]})
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+type DiagnosticCheck struct {
+	Code        string `json:"code"`
+	Status      string `json:"status"`
+	Summary     string `json:"summary"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
+type ServiceDiagnostics struct {
+	Service string            `json:"service"`
+	Checks  []DiagnosticCheck `json:"checks"`
+}
+
+// GetServiceDiagnostics returns deterministic, secret-free and tenant-scoped
+// checks suitable for a CLI, portal, or SCM status adapter.
+func (h *Handlers) GetServiceDiagnostics(w http.ResponseWriter, r *http.Request) {
+	service, err := h.scopedStore(r).Get(r.PathValue("name"))
+	if err != nil {
+		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
+	checks := []DiagnosticCheck{
+		{Code: "repository.identity", Status: "pass", Summary: service.Repository.Canonical()},
+		{Code: "deployment.contract", Status: "pass", Summary: "declarative deployment contract is valid"},
+	}
+	if len(service.Deployment.Egress) == 0 {
+		checks = append(checks, DiagnosticCheck{Code: "network.egress", Status: "pass", Summary: "no external egress declared"})
+	} else {
+		checks = append(checks, DiagnosticCheck{Code: "network.egress", Status: "pass", Summary: "explicit egress policy will be generated"})
+	}
+	for _, environment := range h.scopedStore(r).ListEnvironments() {
+		if environment.Spec.Service == service.Name && environment.Spec.Source != nil && environment.Spec.Source.DeploymentPhase == "Failed" {
+			checks = append(checks, DiagnosticCheck{Code: "preview.deployment", Status: "fail", Summary: "a preview deployment failed", Remediation: "inspect the environment logs endpoint and retry after correcting the repository build"})
+		}
+	}
+	writeJSON(w, http.StatusOK, ServiceDiagnostics{Service: service.Name, Checks: checks})
+}
+
 // --- Environment endpoints (Phase 5) ---
 
 type CreateEnvironmentRequest struct {

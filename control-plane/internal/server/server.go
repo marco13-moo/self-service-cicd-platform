@@ -93,6 +93,7 @@ func New(
 	}
 	argoLinks := orchestrator.NewArgoLinks(cfg.Argo.UIBaseURL)
 	authenticators := map[scm.Provider]scm.Authenticator{}
+	statusReporters := map[scm.Provider]scm.StatusReporter{}
 	if cfg.GitHub.AppID != "" && cfg.GitHub.PrivateKeyPath != "" {
 		key, readErr := os.ReadFile(cfg.GitHub.PrivateKeyPath)
 		if readErr != nil {
@@ -103,9 +104,12 @@ func New(
 			return nil, authErr
 		}
 		authenticators[scm.ProviderGitHub] = auth
+		statusReporters[scm.ProviderGitHub] = githubscm.NewStatusReporter(auth, nil)
 	}
 	if cfg.Bitbucket.OAuthClientID != "" && cfg.Bitbucket.OAuthClientSecret != "" {
-		authenticators[scm.ProviderBitbucket] = bitbucketscm.NewAuthenticator(cfg.Bitbucket.OAuthClientID, cfg.Bitbucket.OAuthClientSecret)
+		auth := bitbucketscm.NewAuthenticator(cfg.Bitbucket.OAuthClientID, cfg.Bitbucket.OAuthClientSecret)
+		authenticators[scm.ProviderBitbucket] = auth
+		statusReporters[scm.ProviderBitbucket] = bitbucketscm.NewStatusReporter(auth, nil)
 	}
 
 	//-----------------------------------------
@@ -170,7 +174,7 @@ func New(
 			PolicyPredicateType: cfg.Preview.PolicyPredicateType, VEXConfigMap: cfg.Preview.VEXConfigMap,
 			IgnoreUnfixed:  cfg.Preview.IgnoreUnfixed,
 			TargetPlatform: cfg.Preview.TargetPlatform,
-		}, logger),
+		}, logger, statusReporters),
 		reconcileContext:     reconcileContext,
 		cancelReconciliation: cancelReconciliation,
 		database:             database,

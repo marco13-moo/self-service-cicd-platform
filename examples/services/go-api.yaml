@@ -1,0 +1,15 @@
+apiVersion: platform.service/v1
+kind: Service
+metadata:
+  name: orders-api
+spec:
+  owner: team-commerce
+  repository: https://bitbucket.org/acme/orders-api
+  environment: preview
+  deployment:
+    containerPort: 8080
+    dockerfile: Dockerfile
+    egress:
+      - dnsName: api.stripe.com
+        port: 443
+        protocol: TCP

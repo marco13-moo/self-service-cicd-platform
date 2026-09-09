@@ -40,7 +40,9 @@ spec:
       serviceAccountName: control-plane
       containers:
         - name: control-plane
-          image: control-plane:phase7
+          # Render from a verified platform.release/v1 manifest. Kubernetes
+          # receives a digest; this placeholder must never be applied directly.
+          image: "${CONTROL_PLANE_IMAGE}"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.example.invalid/schemas/service-v1.json",
+  "title": "platform.service/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "platform.service/v1"},
+    "kind": {"const": "Service"},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63}}},
+    "spec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["owner", "repository"],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "format": "uri", "pattern": "^https://(github\\.com|bitbucket\\.org)/"},
+        "environment": {"type": "string"},
+        "deployment": {"type": "object", "additionalProperties": false, "properties": {
+          "containerPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+          "dockerfile": {"type": "string", "pattern": "^(?!/|.*(?:^|/)\\.\\.(?:/|$)).+$"},
+          "egress": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["dnsName", "port"], "properties": {"dnsName": {"type": "string"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "protocol": {"enum": ["TCP", "UDP"]}}}}
+        }}
+      }
+    }
+  }
+}

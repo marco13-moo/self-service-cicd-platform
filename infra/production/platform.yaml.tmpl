@@ -1,0 +1,156 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: control-plane
+  namespace: platform-system
+  annotations:
+    platform.example/workload-identity: production-kms-signer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-plane
+  namespace: platform-system
+spec:
+  replicas: 3
+  strategy:
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector: {matchLabels: {app: control-plane}}
+  template:
+    metadata: {labels: {app: control-plane}}
+    spec:
+      serviceAccountName: control-plane
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: {matchLabels: {app: control-plane}}
+      containers:
+        - name: control-plane
+          image: "${CONTROL_PLANE_IMAGE}"
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: LISTEN_ADDR, value: ":8080"}
+            - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: control-plane-db-app, key: uri}}}
+            - {name: ARGO_NAMESPACE, value: argo}
+            - {name: ARGO_SERVER_URL, value: "https://argo.${PREVIEW_DOMAIN}"}
+            # Ordinary static tenant tokens are intentionally absent. A break-
+            # glass Secret is injected only by the audited incident procedure.
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: control-plane, namespace: platform-system}
+spec: {minAvailable: 2, selector: {matchLabels: {app: control-plane}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: control-plane, namespace: platform-system}
+spec: {selector: {app: control-plane}, ports: [{name: http, port: 80, targetPort: http}]}
+---
+# CloudNativePG owns failover and synchronous replication. The object-store
+# plugin continuously archives WAL and encrypts backup objects at the provider.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: control-plane-db, namespace: platform-system}
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+  storage: {size: 100Gi, storageClass: production-encrypted}
+  walStorage: {size: 50Gi, storageClass: production-encrypted}
+  monitoring: {enablePodMonitor: true}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters: {barmanObjectName: control-plane-backup}
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata: {name: control-plane-backup, namespace: platform-system}
+spec:
+  configuration:
+    destinationPath: ${BACKUP_DESTINATION}
+    data: {compression: bzip2, encryption: AES256}
+    wal: {compression: bzip2, encryption: AES256, maxParallel: 8}
+  retentionPolicy: 30d
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata: {name: control-plane-db, namespace: platform-system}
+spec:
+  schedule: "0 0 1 * * *"
+  backupOwnerReference: self
+  cluster: {name: control-plane-db}
+  method: plugin
+  pluginConfiguration: {name: barman-cloud.cloudnative-pg.io}
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata: {name: preview-edge-production}
+spec: {blocks: [{cidr: ${LOAD_BALANCER_CIDR}}]}
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata: {name: preview-edge-production}
+spec:
+  loadBalancerIPs: true
+  externalIPs: false
+  interfaces: ["^eth[0-9]+"]
+  serviceSelector: {matchLabels: {platform.example/edge: preview}}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: preview-wildcard, namespace: preview-gateway}
+spec:
+  secretName: preview-wildcard-tls
+  issuerRef: {kind: ClusterIssuer, name: production-acme}
+  dnsNames: ["*.${PREVIEW_DOMAIN}"]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: preview
+  namespace: preview-gateway
+  labels: {platform.example/edge: preview}
+  annotations: {external-dns.alpha.kubernetes.io/hostname: "*.${PREVIEW_DOMAIN}"}
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.${PREVIEW_DOMAIN}"
+      tls: {mode: Terminate, certificateRefs: [{name: preview-wildcard-tls}]}
+      allowedRoutes: {namespaces: {from: Selector, selector: {matchLabels: {platform.example/preview-tenant: "true"}}}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: network-conformance, namespace: platform-system}
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: network-conformance
+          restartPolicy: Never
+          containers: [{name: conformance, image: "${NETWORK_CONFORMANCE_IMAGE}"}]

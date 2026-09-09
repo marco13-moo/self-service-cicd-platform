@@ -1,0 +1,42 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-production-slos
+  namespace: platform-system
+spec:
+  groups:
+    - name: platform.slos
+      rules:
+        - record: platform:scm_command_backlog:sum
+          expr: sum(scm_commands{status=~"pending|leased"})
+        - alert: PlatformCommandBacklog
+          expr: platform:scm_command_backlog:sum > 100
+          for: 10m
+          labels: {severity: page}
+          annotations: {summary: "SCM command backlog exceeds the production objective"}
+        - alert: PlatformReconciliationLatency
+          expr: histogram_quantile(0.99, sum by (le) (rate(platform_reconciliation_duration_seconds_bucket[10m]))) > 120
+          for: 15m
+          labels: {severity: page}
+        - alert: PlatformDependencyNotReady
+          expr: min_over_time(up{job=~"control-plane|argo-server|cilium-agent|postgresql"}[5m]) < 1
+          labels: {severity: page}
+        - alert: PlatformJWKSFailures
+          expr: increase(platform_jwks_refresh_failures_total[10m]) > 2
+          labels: {severity: page}
+        - alert: PlatformAuditExportLag
+          expr: platform_audit_export_lag_seconds > 300
+          for: 10m
+          labels: {severity: page}
+        - alert: PlatformCertificateExpiring
+          expr: certmanager_certificate_expiration_timestamp_seconds - time() < 1209600
+          labels: {severity: ticket}
+        - alert: PlatformConformanceFailed
+          expr: time() - kube_job_status_completion_time{job_name=~"network-conformance-.*"} > 1800 or kube_job_status_failed{job_name=~"network-conformance-.*"} > 0
+          labels: {severity: page}
+    - name: platform.objectives
+      rules:
+        - record: platform:slo:readiness_30d
+          expr: avg_over_time(up{job="control-plane"}[30d])
+        - record: platform:slo:reconciliation_p99_30d
+          expr: histogram_quantile(0.99, sum by (le) (rate(platform_reconciliation_duration_seconds_bucket[30d])))

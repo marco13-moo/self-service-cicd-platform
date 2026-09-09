@@ -69,7 +69,8 @@ spec:
             - name: conformance
               # Local conformance loads this exact image into kind. Production
               # promotion replaces it with the signed registry digest.
-              image: self-service-cicd-network-conformance:local
+              # Supplied by the same signed release as the control plane.
+              image: "${NETWORK_CONFORMANCE_IMAGE}"
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false

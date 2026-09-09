@@ -105,3 +105,23 @@ func TestCreateServiceRejectsUnsafeDeploymentContract(t *testing.T) {
 		}
 	}
 }
+
+func TestGoldenPathCatalogAndDiagnostics(t *testing.T) {
+	store := NewServiceStore()
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, nil, zap.NewNop())
+	register := httptest.NewRecorder()
+	router.ServeHTTP(register, httptest.NewRequest(http.MethodPost, "/api/v1/services", bytes.NewBufferString(`{"name":"orders","owner":"commerce","repo_url":"https://bitbucket.org/acme/orders","deployment":{"container_port":8080}}`)))
+	if register.Code != http.StatusCreated {
+		t.Fatalf("register returned %d: %s", register.Code, register.Body.String())
+	}
+	for _, endpoint := range []string{"/api/v1/catalog/services", "/api/v1/services/orders/diagnostics"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, endpoint, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s returned %d: %s", endpoint, response.Code, response.Body.String())
+		}
+		if !bytes.Contains(response.Body.Bytes(), []byte("orders")) {
+			t.Fatalf("GET %s omitted tenant service", endpoint)
+		}
+	}
+}

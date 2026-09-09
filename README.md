@@ -56,6 +56,14 @@ ADR 0020 standardizes enforced tenant networking on Cilium, makes exact
 destination egress part of service intent, and isolates preview ingress behind a
 platform-owned Gateway API boundary with adversarial packet conformance.
 
+ADR 0021 adds build-once digest releases, signed SBOM/provenance, fail-closed
+provider certification, production PostgreSQL/WAL recovery, OIDC-only ordinary
+access, cert-manager/external-dns/Cilium edge composition, SLO alerts, and staged
+GitOps promotion with rollback. ADR 0022 adds the versioned service declaration,
+tenant catalog, actionable diagnostics, `platformctl`, provider-neutral revision
+status adapters for GitHub and Bitbucket, tenant lifecycle automation, and
+end-to-end onboarding conformance.
+
 ## Architecture
 
 ```text
@@ -84,6 +92,8 @@ Architectural decisions and trust boundaries are documented in
 | `GET` | `/api/v1/admin/scm/commands` | Bearer-authenticated command inspection |
 | `POST` | `/api/v1/services` | Register a service |
 | `GET` | `/api/v1/services` | List registered services |
+| `GET` | `/api/v1/catalog/services` | Tenant-scoped developer catalog |
+| `GET` | `/api/v1/services/{name}/diagnostics` | Actionable, secret-free service diagnostics |
 | `POST` | `/api/v1/environments` | Submit create and TTL workflows |
 | `GET` | `/api/v1/environments/{name}` | Retrieve intent and live workflow state |
 | `DELETE` | `/api/v1/environments/{name}` | Submit and retain a destroy workflow reference |
@@ -127,6 +137,31 @@ Preview-capable services declare their container contract when registered:
 The deployment block is optional; its defaults are port `8080`, a root-level
 `Dockerfile`, and no external egress. Egress destinations must be exact DNS
 names with an explicit port; wildcard domains are rejected.
+
+The golden path is declarative and works identically for supported SCMs:
+
+```bash
+cd control-plane
+go run ./cmd/platformctl -endpoint https://platform.example \
+  -file ../examples/services/go-api.yaml apply
+go run ./cmd/platformctl -endpoint https://platform.example catalog
+go run ./cmd/platformctl -endpoint https://platform.example diagnose orders-api
+```
+
+Use an OIDC token through `PLATFORM_TOKEN`; do not place credentials in service
+declarations. The authoritative schema is [`service.schema.json`](config/service.schema.json).
+
+## Production release and certification
+
+`release-platform-images.sh` builds, scans, signs, attests, and publishes the
+control-plane and network-conformance images by digest. A signed release manifest
+is then rendered with site-specific production values and promoted without a
+rebuild. `certify-production-providers.sh` executes the existing KMS, registry,
+PostgreSQL HA/recovery, and Cilium packet suites; any failure prevents promotion.
+The manifests in [`infra/production`](infra/production) are templates, not a
+claim that an unspecified provider has passed certification. Operational steps,
+RPO/RTO criteria, rollback, disaster recovery, and break-glass governance are in
+[`production-promotion.md`](docs/runbooks/production-promotion.md).
 
 ## Configuration
 

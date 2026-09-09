@@ -15,6 +15,7 @@ import (
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -27,13 +28,14 @@ var (
 )
 
 type SCMCommandReconciler struct {
-	store         *api.ServiceStore
-	commands      api.SCMCommandStore
-	orchestrator  orchestrator.EnvironmentOrchestrator
-	previewTTL    time.Duration
-	preview       PreviewRuntimeConfig
-	leaseDuration time.Duration
-	logger        *zap.Logger
+	store           *api.ServiceStore
+	commands        api.SCMCommandStore
+	orchestrator    orchestrator.EnvironmentOrchestrator
+	previewTTL      time.Duration
+	preview         PreviewRuntimeConfig
+	leaseDuration   time.Duration
+	statusReporters map[scm.Provider]scm.StatusReporter
+	logger          *zap.Logger
 }
 
 type PreviewRuntimeConfig struct {
@@ -60,8 +62,12 @@ type PreviewRuntimeConfig struct {
 	VEXConfigMap            string
 }
 
-func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, preview PreviewRuntimeConfig, logger *zap.Logger) *SCMCommandReconciler {
-	return &SCMCommandReconciler{store: store, commands: commands, orchestrator: envOrchestrator, previewTTL: previewTTL, preview: preview, leaseDuration: 30 * time.Second, logger: logger}
+func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, preview PreviewRuntimeConfig, logger *zap.Logger, configuredReporters ...map[scm.Provider]scm.StatusReporter) *SCMCommandReconciler {
+	reporters := map[scm.Provider]scm.StatusReporter{}
+	if len(configuredReporters) != 0 && configuredReporters[0] != nil {
+		reporters = configuredReporters[0]
+	}
+	return &SCMCommandReconciler{store: store, commands: commands, orchestrator: envOrchestrator, previewTTL: previewTTL, preview: preview, leaseDuration: 30 * time.Second, statusReporters: reporters, logger: logger}
 }
 
 func (r *SCMCommandReconciler) Run(ctx context.Context) {
@@ -133,6 +139,8 @@ func (r *SCMCommandReconciler) ProcessOne(ctx context.Context, now time.Time) (b
 	if err != nil {
 		return false, err
 	}
+	started := time.Now()
+	defer func() { telemetry.ObserveReconciliation(time.Since(started)) }()
 	tenantID := api.TenantID(command.TenantID)
 	if tenantID == "" {
 		tenantID = api.DefaultTenantID
@@ -143,11 +151,32 @@ func (r *SCMCommandReconciler) ProcessOne(ctx context.Context, now time.Time) (b
 	if scoped, ok := r.commands.(api.TenantScopedCommandStore); ok {
 		tenantCommands = scoped.CommandsForTenant(tenantID)
 	}
+	r.reportStatus(ctx, command, scm.RevisionPending, "Platform preview reconciliation started", "")
 	processingErr := r.reconcile(ctx, tenantStore, command)
 	if completeErr := tenantCommands.CompleteSCMCommand(command.ID, processingErr, now); completeErr != nil {
 		return true, fmt.Errorf("complete SCM command: %w", completeErr)
 	}
+	state, description, targetURL := scm.RevisionSuccess, "Platform preview is ready", ""
+	if processingErr != nil {
+		state, description = scm.RevisionFailure, "Platform preview reconciliation failed"
+	}
+	if environment, lookupErr := tenantStore.GetEnvironment(command.Environment); lookupErr == nil && environment.Spec.Source != nil {
+		targetURL = environment.Spec.Source.PreviewURL
+	}
+	r.reportStatus(ctx, command, state, description, targetURL)
 	return true, processingErr
+}
+
+func (r *SCMCommandReconciler) reportStatus(ctx context.Context, command *scm.LifecycleCommand, state scm.RevisionState, description, targetURL string) {
+	reporter := r.statusReporters[command.Provider]
+	if reporter == nil || command.HeadSHA == "" {
+		return
+	}
+	if err := reporter.Report(ctx, scm.RevisionStatus{Repository: command.Repository, InstallationID: command.InstallationID, SHA: command.HeadSHA, State: state, Description: description, TargetURL: targetURL}); err != nil {
+		// Status publication is observational: provider impairment must not mutate
+		// an already-durable lifecycle outcome or induce duplicate deployments.
+		r.logger.Warn("SCM revision status publication failed", zap.String("provider", string(command.Provider)), zap.Error(err))
+	}
 }
 
 func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.ServiceStore, command *scm.LifecycleCommand) error {

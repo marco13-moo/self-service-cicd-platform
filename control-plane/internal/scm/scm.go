@@ -136,6 +136,30 @@ type Authenticator interface {
 	Token(ctx context.Context, installationID string) (InstallationToken, error)
 }
 
+type RevisionState string
+
+const (
+	RevisionPending RevisionState = "pending"
+	RevisionSuccess RevisionState = "success"
+	RevisionFailure RevisionState = "failure"
+)
+
+// RevisionStatus is the provider-neutral check result emitted by lifecycle
+// reconciliation. Adapters translate it to their native status vocabulary.
+type RevisionStatus struct {
+	Repository     string
+	InstallationID string
+	SHA            string
+	State          RevisionState
+	Description    string
+	TargetURL      string
+}
+
+type StatusReporter interface {
+	Provider() Provider
+	Report(context.Context, RevisionStatus) error
+}
+
 var nonDNSLabelCharacters = regexp.MustCompile(`[^a-z0-9-]+`)
 
 func CommandFromEvent(event PullRequestEvent) *LifecycleCommand {

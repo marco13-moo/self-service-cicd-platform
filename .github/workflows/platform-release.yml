@@ -1,0 +1,63 @@
+name: Platform release and staged promotion
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: Immutable release identifier, required: true}
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: aquasecurity/setup-trivy@v0.2.4
+      - name: Build, attest, scan, sign, and publish
+        env:
+          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          COSIGN_KEY: ${{ vars.COSIGN_KEY }}
+        run: ./scripts/release-platform-images.sh
+      - uses: actions/upload-artifact@v4
+        with: {name: release-evidence, path: release-evidence/}
+  staging:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: {name: release-evidence, path: release-evidence/}
+      - name: Verify, render, promote, and certify staging
+        env:
+          COSIGN_PUBLIC_KEY: ${{ vars.COSIGN_PUBLIC_KEY }}
+          PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+          LOAD_BALANCER_CIDR: ${{ vars.LOAD_BALANCER_CIDR }}
+          BACKUP_DESTINATION: ${{ vars.BACKUP_DESTINATION }}
+          RELEASE_MANIFEST: release-evidence/${{ inputs.version }}/release.json
+        run: |
+          ./scripts/render-production-release.sh "$RELEASE_MANIFEST" "release-evidence/${{ inputs.version }}/release.bundle.json" /tmp/platform.yaml
+          ./scripts/promote-production-release.sh /tmp/platform.yaml
+  production:
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: {name: release-evidence, path: release-evidence/}
+      - name: Verify and promote the identical artifact set
+        env:
+          COSIGN_PUBLIC_KEY: ${{ vars.COSIGN_PUBLIC_KEY }}
+          PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+          LOAD_BALANCER_CIDR: ${{ vars.LOAD_BALANCER_CIDR }}
+          BACKUP_DESTINATION: ${{ vars.BACKUP_DESTINATION }}
+          RELEASE_MANIFEST: release-evidence/${{ inputs.version }}/release.json
+        run: |
+          ./scripts/render-production-release.sh "$RELEASE_MANIFEST" "release-evidence/${{ inputs.version }}/release.bundle.json" /tmp/platform.yaml
+          ./scripts/promote-production-release.sh /tmp/platform.yaml

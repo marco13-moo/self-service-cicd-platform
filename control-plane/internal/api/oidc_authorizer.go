@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	platformauth "github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/auth"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/telemetry"
 )
 
 type HybridAuthorizer struct {
@@ -79,6 +80,7 @@ func (a *HybridAuthorizer) authenticateOIDC(ctx context.Context, token string) (
 	cache := a.cache(selected.JWKSURL)
 	if cache.RefreshDue(time.Now().UTC()) {
 		if err := cache.Refresh(ctx); err != nil {
+			telemetry.RecordJWKSRefreshFailure()
 			return Principal{}, err
 		}
 	}
