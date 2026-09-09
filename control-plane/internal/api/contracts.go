@@ -11,6 +11,13 @@ type CreateServiceRequest struct {
 }
 
 type ServiceDeploymentRequest struct {
-	ContainerPort int    `json:"container_port,omitempty"`
-	Dockerfile    string `json:"dockerfile,omitempty"`
+	ContainerPort int                 `json:"container_port,omitempty"`
+	Dockerfile    string              `json:"dockerfile,omitempty"`
+	Egress        []ServiceEgressRule `json:"egress,omitempty"`
+}
+
+type ServiceEgressRule struct {
+	DNSName  string `json:"dns_name"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol,omitempty"`
 }

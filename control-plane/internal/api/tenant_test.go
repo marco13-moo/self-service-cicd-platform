@@ -115,3 +115,27 @@ func TestTenantAdministrationRequiresExplicitPlatformCapability(t *testing.T) {
 		t.Fatalf("obsolete cross-tenant authentication route remained exposed: %d", response.Code)
 	}
 }
+
+func TestHybridAuthorizerRetainsStaticBreakGlassFallback(t *testing.T) {
+	static, err := NewTenantAuthorizer(`{
+      "break-glass":{"subject":"operator","tenant_id":"default","role":"admin","platform_admin":true}
+    }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorizer := NewHybridAuthorizer(static, NewServiceStore())
+	protected := authorizer.Require(TenantAdmin, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := PrincipalFromContext(r.Context())
+		if !ok || principal.Subject != "operator" || !principal.PlatformAdmin {
+			t.Fatalf("break-glass principal was not preserved: %#v", principal)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	request.Header.Set("Authorization", "Bearer break-glass")
+	response := httptest.NewRecorder()
+	protected.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("static rollback credential returned %d", response.Code)
+	}
+}

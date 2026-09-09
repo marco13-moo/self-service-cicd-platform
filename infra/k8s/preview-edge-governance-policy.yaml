@@ -1,0 +1,73 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tenant-preview-edge-governance
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["gateway.networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["httproutes"]
+  validations:
+    - expression: >-
+        has(object.metadata.labels) && 'platform.tenant' in object.metadata.labels &&
+        object.metadata.labels['platform.tenant'] != ''
+      message: HTTPRoutes require an immutable tenant identity
+    - expression: >-
+        object.spec.parentRefs.all(parent,
+          parent.name == 'platform-preview' &&
+          has(parent.namespace) && parent.namespace == 'preview-gateway')
+      message: preview routes may attach only to the platform preview Gateway
+    - expression: >-
+        has(object.spec.hostnames) && size(object.spec.hostnames) > 0 &&
+        object.spec.hostnames.all(host,
+          host.startsWith('t-' + object.metadata.labels['platform.tenant'] + '-') &&
+          host.endsWith('.preview.example.test'))
+      message: preview hostnames must be tenant-prefixed and use the governed preview domain
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tenant-preview-edge-governance
+spec:
+  policyName: tenant-preview-edge-governance
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.tenant
+          operator: Exists
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: preview-gateway-certificate-governance
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["secrets"]
+  validations:
+    - expression: >-
+        object.metadata.name != 'preview-wildcard-tls' ||
+        (object.type == 'kubernetes.io/tls' && has(object.metadata.labels) &&
+         object.metadata.labels['app.kubernetes.io/managed-by'] == 'cert-manager' &&
+         object.metadata.labels['platform.tenant'] == 'platform')
+      message: the preview Gateway certificate must be cert-manager-owned platform TLS material
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: preview-gateway-certificate-governance
+spec:
+  policyName: preview-gateway-certificate-governance
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: preview-gateway

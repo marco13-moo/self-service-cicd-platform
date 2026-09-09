@@ -110,3 +110,11 @@ API tests prove self-tenant administration and platform-capability separation.
 The PostgreSQL suite proves auth-configuration RLS, issuer uniqueness, tenant
 suspension, command lease exclusion, and audit immutability through a non-owner
 application role.
+
+Operational closure is automated by `scripts/validate-control-plane-ha.sh`. Its
+PostgreSQL instance enables logical WAL, exposes `audit_events` through an
+insert-only publication, consumes a uniquely correlated event through a logical
+decoding slot, seals and hashes the resulting archive segment, and repeats the
+database suite after backup restoration. The provider-facing validator suite
+uses a live rotating HTTPS JWKS endpoint and proves group revocation and token
+expiry in addition to predecessor-key rollover and static-token fallback.

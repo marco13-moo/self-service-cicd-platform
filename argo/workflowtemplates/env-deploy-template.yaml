@@ -40,6 +40,11 @@ spec:
       - name: cosign_public_key_secret
       - name: policy_predicate_type
       - name: vex_config_map
+      - name: egress_policy_b64
+      - name: preview_gateway_namespace
+        value: preview-gateway
+      - name: preview_gateway_name
+        value: platform-preview
   volumes:
     - name: buildkit-state
       emptyDir: {}
@@ -449,6 +454,7 @@ spec:
           image="${tag%:*}@${digest}"
           port='{{workflow.parameters.container_port}}'
           host='{{workflow.parameters.preview_host}}'
+          printf '%s' '{{workflow.parameters.egress_policy_b64}}' | base64 -d | kubectl -n "$namespace" apply -f -
           kubectl -n "$namespace" apply -f - <<EOF
           apiVersion: apps/v1
           kind: Deployment
@@ -523,27 +529,28 @@ spec:
           EOF
           if [ -n "$host" ]; then
             kubectl -n "$namespace" apply -f - <<EOF
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
           metadata:
             name: preview
             labels:
               platform.tenant: '{{workflow.parameters.tenant_id}}'
           spec:
+            parentRefs:
+              - name: '{{workflow.parameters.preview_gateway_name}}'
+                namespace: '{{workflow.parameters.preview_gateway_namespace}}'
+            hostnames: ["${host}"]
             rules:
-              - host: ${host}
-                http:
-                  paths:
-                    - path: /
-                      pathType: Prefix
-                      backend:
-                        service:
-                          name: preview
-                          port:
-                            name: http
+              - matches:
+                  - path:
+                      type: PathPrefix
+                      value: /
+                backendRefs:
+                  - name: preview
+                    port: ${port}
           EOF
           else
-            kubectl -n "$namespace" delete ingress preview --ignore-not-found
+            kubectl -n "$namespace" delete httproute preview --ignore-not-found
           fi
           kubectl -n "$namespace" rollout status deployment/preview --timeout=5m
           echo "Preview converged at {{workflow.parameters.preview_url}}"

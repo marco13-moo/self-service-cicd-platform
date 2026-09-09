@@ -52,6 +52,10 @@ ADR 0019 adds dual-mode bootstrap/OIDC authentication, bounded JWKS rollover,
 tenant lifecycle controls, and append-only tenant audit events protected by
 forced PostgreSQL Row-Level Security.
 
+ADR 0020 standardizes enforced tenant networking on Cilium, makes exact
+destination egress part of service intent, and isolates preview ingress behind a
+platform-owned Gateway API boundary with adversarial packet conformance.
+
 ## Architecture
 
 ```text
@@ -112,13 +116,17 @@ Preview-capable services declare their container contract when registered:
   "environment": "production",
   "deployment": {
     "container_port": 8080,
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "egress": [
+      {"dns_name": "api.example.com", "port": 443, "protocol": "TCP"}
+    ]
   }
 }
 ```
 
-The deployment block is optional; its defaults are port `8080` and a root-level
-`Dockerfile`.
+The deployment block is optional; its defaults are port `8080`, a root-level
+`Dockerfile`, and no external egress. Egress destinations must be exact DNS
+names with an explicit port; wildcard domains are rejected.
 
 ## Configuration
 
@@ -179,6 +187,22 @@ The import refuses a non-empty target. See
 [`control-plane-ha.md`](docs/runbooks/control-plane-ha.md) for cutover, backup,
 restore, and failover acceptance criteria.
 
+Migration 5 audit rows are exported through the insert-only logical publication
+defined in [`audit-logical-replication.sql`](infra/postgres/audit-logical-replication.sql).
+The HA harness proves logical decoding completeness and emits the sealed archive
+segment digest alongside backup/restore and replica-handoff results.
+
+Run the disposable real-provider identity lifecycle with:
+
+```bash
+./scripts/validate-keycloak-oidc.sh
+```
+
+It provisions Keycloak over a self-signed loopback HTTPS boundary and proves
+issuance, RSA JWKS rotation, group revocation, and expiry. Its TLS bypass is
+confined to the standalone conformance command and rejects non-loopback hosts;
+the control-plane server retains strict public-CA verification.
+
 For the bootstrap tenant credential shape, copy
 [`control-plane-tenant-auth-example.yaml`](infra/k8s/control-plane-tenant-auth-example.yaml),
 replace the illustrative token through a secret manager, and apply it without
@@ -194,9 +218,22 @@ Run the disposable two-tenant escape test with:
 ./scripts/validate-tenant-kubernetes-isolation.sh
 ```
 
-The test proves that tenant alpha can deploy only into its own namespace and
-that server-side Pod Security rejects a privileged workload. NetworkPolicy
-enforcement in transit additionally requires a conformant CNI.
+The API/RBAC test proves that tenant alpha can deploy only into its own namespace
+and that server-side Pod Security rejects a privileged workload. Packet-level
+enforcement uses the pinned Cilium reference cluster:
+
+```bash
+./scripts/bootstrap-kind-cilium.sh
+./scripts/validate-cilium-tenant-isolation.sh
+```
+
+That suite proves cross-tenant, arbitrary ingress, undeclared DNS, Kubernetes
+API, metadata, and policy-deletion denial while retaining same-tenant and
+gateway-authorized traffic.
+
+The scheduled variant is built from `infra/conformance/Dockerfile` and declared
+in `infra/k8s/network-isolation-conformance-cronjob.yaml`. Production promotion
+must replace the local image name with its signed immutable digest.
 
 For production signing, copy
 [`preview-trust-config-example.yaml`](infra/k8s/preview-trust-config-example.yaml),

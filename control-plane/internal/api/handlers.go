@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -131,6 +132,18 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.Deployment.Dockerfile = dockerfile
+		for index, rule := range req.Deployment.Egress {
+			protocol := strings.ToUpper(strings.TrimSpace(rule.Protocol))
+			if protocol == "" {
+				protocol = "TCP"
+			}
+			if !validEgressDNSName(rule.DNSName) || rule.Port < 1 || rule.Port > 65535 || (protocol != "TCP" && protocol != "UDP") {
+				http.Error(w, "egress rules require an exact DNS name, valid port, and TCP or UDP protocol", http.StatusBadRequest)
+				return
+			}
+			req.Deployment.Egress[index].DNSName = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(rule.DNSName), "."))
+			req.Deployment.Egress[index].Protocol = protocol
+		}
 	}
 
 	if err := h.repositories.ValidateRepo(req.RepoURL); err != nil {
@@ -165,6 +178,13 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(service)
+}
+
+var egressDNSName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
+
+func validEgressDNSName(value string) bool {
+	value = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+	return len(value) <= 253 && egressDNSName.MatchString(value) && !strings.Contains(value, "*")
 }
 
 func (h *Handlers) ListServices(w http.ResponseWriter, r *http.Request) {

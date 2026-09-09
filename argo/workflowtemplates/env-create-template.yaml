@@ -74,8 +74,11 @@ spec:
             - apiGroups: ["apps"]
               resources: ["deployments"]
               verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-            - apiGroups: ["networking.k8s.io"]
-              resources: ["ingresses"]
+            - apiGroups: ["gateway.networking.k8s.io"]
+              resources: ["httproutes"]
+              verbs: ["get", "create", "update", "patch", "delete"]
+            - apiGroups: ["cilium.io"]
+              resources: ["ciliumnetworkpolicies"]
               verbs: ["get", "create", "update", "patch", "delete"]
           ---
           apiVersion: rbac.authorization.k8s.io/v1
@@ -139,7 +142,7 @@ spec:
                 match:
                   any:
                     - resources:
-                        kinds: [Pod, Deployment, Service, Ingress]
+                        kinds: [Pod, Deployment, Service, HTTPRoute, CiliumNetworkPolicy]
                 validate:
                   failureAction: Enforce
                   message: workload identity must match namespace tenant ownership
@@ -180,24 +183,6 @@ spec:
           apiVersion: networking.k8s.io/v1
           kind: NetworkPolicy
           metadata:
-            name: allow-dns
-          spec:
-            podSelector: {}
-            policyTypes: [Egress]
-            egress:
-              - to:
-                  - namespaceSelector:
-                      matchLabels:
-                        kubernetes.io/metadata.name: kube-system
-                ports:
-                  - protocol: UDP
-                    port: 53
-                  - protocol: TCP
-                    port: 53
-          ---
-          apiVersion: networking.k8s.io/v1
-          kind: NetworkPolicy
-          metadata:
             name: allow-same-namespace
           spec:
             podSelector: {}
@@ -209,18 +194,17 @@ spec:
               - to:
                   - podSelector: {}
           ---
-          apiVersion: networking.k8s.io/v1
-          kind: NetworkPolicy
+          apiVersion: cilium.io/v2
+          kind: CiliumNetworkPolicy
           metadata:
             name: allow-platform-ingress
+            labels:
+              platform.tenant: "$tenant"
           spec:
-            podSelector:
+            endpointSelector:
               matchLabels:
                 app.kubernetes.io/name: preview
-            policyTypes: [Ingress]
             ingress:
-              - from:
-                  - namespaceSelector:
-                      matchLabels:
-                        platform.preview-ingress: "true"
+              - fromEntities:
+                  - ingress
           EOF

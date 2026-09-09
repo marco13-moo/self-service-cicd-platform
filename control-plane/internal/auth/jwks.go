@@ -205,7 +205,13 @@ func parseJWKS(data []byte) (keySet, error) {
 	}
 	keys := make(keySet, len(document.Keys))
 	for _, encoded := range document.Keys {
-		if encoded.Kid == "" || encoded.Alg == "" || (encoded.Use != "" && encoded.Use != "sig") {
+		// Providers commonly publish encryption keys beside signing keys. They
+		// are outside this verifier's trust domain and must be ignored rather
+		// than making an otherwise valid signing set unavailable.
+		if encoded.Use != "sig" {
+			continue
+		}
+		if encoded.Kid == "" || encoded.Alg == "" {
 			return nil, errors.New("every JWKS key requires kid, alg, and signature use")
 		}
 		if _, duplicate := keys[encoded.Kid]; duplicate {
@@ -216,6 +222,9 @@ func parseJWKS(data []byte) (keySet, error) {
 			return nil, fmt.Errorf("decode JWKS key %q: %w", encoded.Kid, err)
 		}
 		keys[encoded.Kid] = verificationKey{Algorithm: encoded.Alg, Key: key}
+	}
+	if len(keys) == 0 {
+		return nil, errors.New("JWKS contains no eligible signing keys")
 	}
 	return keys, nil
 }

@@ -3,6 +3,8 @@ package reconciler
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -326,6 +328,10 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		}
 		previewURL = scheme + "://" + host
 	}
+	egressPolicy, err := encodeEgressPolicy(service, tenantID)
+	if err != nil {
+		return orchestrator.PreviewDeployment{}, fmt.Errorf("encode service egress policy: %w", err)
+	}
 	return orchestrator.PreviewDeployment{
 		ProjectType: service.ProjectType, ImageRef: imageRef, ImageRepository: tenantRepository + "/" + imageName, ContainerPort: port,
 		Dockerfile: dockerfile, PreviewHost: host, PreviewURL: previewURL,
@@ -337,7 +343,39 @@ func (r *SCMCommandReconciler) previewDeployment(service api.Service, environmen
 		CosignImage:    r.preview.CosignImage, CosignSigner: tenantSigner(r.preview.CosignSigner, tenantID, signingProfile), SigningProfile: signingProfile, CosignPrivateKeySecret: tenantArtifactName(r.preview.CosignPrivateKeySecret, tenantID),
 		CosignAuthMode: authMode, VaultImage: r.preview.VaultImage, VaultAddress: r.preview.VaultAddress, VaultRole: r.preview.VaultRole,
 		CosignPublicKeySecret: tenantArtifactName(r.preview.CosignPublicKeySecret, tenantID), PolicyPredicateType: r.preview.PolicyPredicateType, VEXConfigMap: tenantArtifactName(r.preview.VEXConfigMap, tenantID),
+		EgressPolicy: egressPolicy,
 	}, nil
+}
+
+func encodeEgressPolicy(service api.Service, tenantID string) (string, error) {
+	dnsRules := make([]map[string]string, 0, len(service.Deployment.Egress))
+	egress := make([]any, 0, len(service.Deployment.Egress)+1)
+	for _, rule := range service.Deployment.Egress {
+		dnsRules = append(dnsRules, map[string]string{"matchName": rule.DNSName})
+		egress = append(egress, map[string]any{
+			"toFQDNs": []map[string]string{{"matchName": rule.DNSName}},
+			"toPorts": []any{map[string]any{"ports": []map[string]string{{"port": fmt.Sprintf("%d", rule.Port), "protocol": rule.Protocol}}}},
+		})
+	}
+	if len(dnsRules) != 0 {
+		egress = append([]any{map[string]any{
+			"toEndpoints": []any{map[string]any{"matchLabels": map[string]string{"k8s:io.kubernetes.pod.namespace": "kube-system", "k8s:k8s-app": "kube-dns"}}},
+			"toPorts": []any{map[string]any{
+				"ports": []map[string]string{{"port": "53", "protocol": "UDP"}, {"port": "53", "protocol": "TCP"}},
+				"rules": map[string]any{"dns": dnsRules},
+			}},
+		}}, egress...)
+	}
+	manifest := map[string]any{
+		"apiVersion": "cilium.io/v2", "kind": "CiliumNetworkPolicy",
+		"metadata": map[string]any{"name": "service-egress", "labels": map[string]string{"platform.tenant": tenantID, "platform.service": service.Name}},
+		"spec":     map[string]any{"endpointSelector": map[string]any{"matchLabels": map[string]string{"app.kubernetes.io/name": "preview"}}, "egress": egress},
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(encoded), nil
 }
 
 func tenantSigner(signer, tenantID, profile string) string {

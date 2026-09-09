@@ -202,6 +202,9 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 		"cosign_public_key_secret":  deployment.CosignPublicKeySecret,
 		"policy_predicate_type":     deployment.PolicyPredicateType,
 		"vex_config_map":            deployment.VEXConfigMap,
+		"egress_policy_b64":         deployment.EgressPolicy,
+		"preview_gateway_namespace": "preview-gateway",
+		"preview_gateway_name":      "platform-preview",
 	}
 	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithTenant(env.Spec.TenantID).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
 	workflow, err := e.exec.SubmitFromTemplate(ctx, "env-deploy-template", "env-deploy-", params, labels)

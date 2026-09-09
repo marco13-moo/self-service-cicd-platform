@@ -3,6 +3,8 @@ package reconciler
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -247,5 +249,52 @@ func TestPreviewDeploymentPartitionsTenantArtifactTrust(t *testing.T) {
 	}
 	if deployment.CosignPublicKeySecret != "preview-cosign-public-alpha" || deployment.VEXConfigMap != "preview-vex-none-alpha" {
 		t.Fatalf("tenant trust objects escaped partitioning: %#v", deployment)
+	}
+}
+
+func TestEgressPolicyIsTenantScopedAndFailClosed(t *testing.T) {
+	service := api.Service{
+		TenantID: "alpha",
+		Name:     "checkout",
+		Deployment: api.ServiceDeployment{Egress: []api.ServiceEgressRule{
+			{DNSName: "api.example.com", Port: 443, Protocol: "TCP"},
+		}},
+	}
+	encoded, err := encodeEgressPolicy(service, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err = json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	metadata := manifest["metadata"].(map[string]any)
+	labels := metadata["labels"].(map[string]any)
+	if labels["platform.tenant"] != "alpha" || labels["platform.service"] != "checkout" {
+		t.Fatalf("generated policy lost ownership labels: %#v", labels)
+	}
+	serialized := string(manifestBytes)
+	for _, expected := range []string{`"matchName":"api.example.com"`, `"port":"443"`, `"protocol":"TCP"`} {
+		if !strings.Contains(serialized, expected) {
+			t.Fatalf("generated policy omitted %s: %s", expected, serialized)
+		}
+	}
+	for _, forbidden := range []string{"0.0.0.0/0", "169.254.169.254", `"matchPattern"`} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("generated policy contains forbidden escape %q: %s", forbidden, serialized)
+		}
+	}
+
+	deniedByDefault, err := encodeEgressPolicy(api.Service{Name: "closed"}, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedBytes, _ := base64.StdEncoding.DecodeString(deniedByDefault)
+	if !strings.Contains(string(closedBytes), `"egress":[]`) {
+		t.Fatalf("empty declaration did not render fail-closed egress: %s", closedBytes)
 	}
 }

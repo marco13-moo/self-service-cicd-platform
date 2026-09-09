@@ -10,19 +10,21 @@ database=platform
 password=${HA_POSTGRES_PASSWORD:-ha-conformance-only}
 tenant_role=platform_app
 tenant_password=${HA_TENANT_DATABASE_PASSWORD:-tenant-conformance-only}
-dump_file=$(mktemp /tmp/self-service-cicd-postgres.XXXXXX.dump)
-legacy_file=$(mktemp /tmp/self-service-cicd-state.XXXXXX.json)
+dump_file=$(mktemp /tmp/self-service-cicd-postgres.dump.XXXXXX)
+legacy_file=$(mktemp /tmp/self-service-cicd-state.json.XXXXXX)
+audit_archive=$(mktemp /tmp/self-service-cicd-audit.wal.XXXXXX)
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 cleanup() {
   docker rm -f "$source_container" "$recovery_container" >/dev/null 2>&1 || true
   rm -f "$dump_file"
   rm -f "$legacy_file"
+  rm -f "$audit_archive"
 }
 trap cleanup EXIT
 
 docker rm -f "$source_container" "$recovery_container" >/dev/null 2>&1 || true
-docker run -d --name "$source_container" -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB="$database" -p "127.0.0.1:${source_port}:5432" "$postgres_image" >/dev/null
+docker run -d --name "$source_container" -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB="$database" -p "127.0.0.1:${source_port}:5432" "$postgres_image" -c wal_level=logical -c max_replication_slots=4 >/dev/null
 
 for _ in $(seq 1 60); do
   if docker exec "$source_container" pg_isready -U postgres -d "$database" >/dev/null 2>&1; then
@@ -39,11 +41,35 @@ printf '%s\n' '{"services":{"import-proof":{"name":"import-proof","repo_url":"ht
   DATABASE_URL="$source_url" GOCACHE=/tmp/self-service-cicd-go-cache \
     go run ./cmd/state-migrate -state-path "$legacy_file"
 )
+
+# Production archives may consume this insert-only publication directly or use
+# equivalent WAL shipping. The logical slot assertion proves that every new
+# audit event is externally observable without weakening table immutability.
+audit_correlation="wal-export-$(date +%s)"
+docker exec "$source_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
+  -c "CREATE PUBLICATION platform_audit_events FOR TABLE audit_events WITH (publish='insert')" \
+  -c "SELECT * FROM pg_create_logical_replication_slot('audit_archive_conformance','test_decoding')" >/dev/null
+docker exec "$source_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
+  -c "INSERT INTO audit_events(id,tenant_id,correlation_id,actor,event_type,resource_type,resource_name,outcome) VALUES(gen_random_uuid(),'default','${audit_correlation}','conformance','audit.exported','tenant','default','succeeded')" >/dev/null
+docker exec "$source_container" psql -U postgres -d "$database" -Atc \
+  "SELECT data FROM pg_logical_slot_get_changes('audit_archive_conformance',NULL,NULL)" >"$audit_archive"
+if ! grep -Fq "$audit_correlation" "$audit_archive"; then
+  echo "logical audit archive omitted the committed conformance event" >&2
+  exit 1
+fi
+publication_mode=$(docker exec "$source_container" psql -U postgres -d "$database" -Atc \
+  "SELECT pubinsert::text || ':' || pubupdate::text || ':' || pubdelete::text FROM pg_publication WHERE pubname='platform_audit_events'")
+if [ "$publication_mode" != "true:false:false" ]; then
+  echo "audit publication is not insert-only: $publication_mode" >&2
+  exit 1
+fi
+chmod 0444 "$audit_archive"
+audit_archive_digest=$(shasum -a 256 "$audit_archive" | awk '{print $1}')
 docker exec "$source_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
   -c "CREATE ROLE ${tenant_role} LOGIN PASSWORD '${tenant_password}'" \
   -c "GRANT USAGE ON SCHEMA public TO ${tenant_role}" \
   -c "GRANT SELECT ON schema_migrations TO ${tenant_role}" \
-  -c "GRANT SELECT ON tenants TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT,UPDATE ON tenants TO ${tenant_role}" \
   -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands,tenant_auths TO ${tenant_role}" \
   -c "GRANT SELECT,INSERT ON audit_events TO ${tenant_role}" >/dev/null
 source_tenant_url="postgres://${tenant_role}:${tenant_password}@127.0.0.1:${source_port}/${database}?sslmode=disable"
@@ -71,7 +97,7 @@ docker exec -i "$recovery_container" pg_restore -U postgres -d "$database" --cle
 docker exec "$recovery_container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
   -c "GRANT USAGE ON SCHEMA public TO ${tenant_role}" \
   -c "GRANT SELECT ON schema_migrations TO ${tenant_role}" \
-  -c "GRANT SELECT ON tenants TO ${tenant_role}" \
+  -c "GRANT SELECT,INSERT,UPDATE ON tenants TO ${tenant_role}" \
   -c "GRANT SELECT,INSERT,UPDATE,DELETE ON services,environments,scm_deliveries,scm_commands,tenant_auths TO ${tenant_role}" \
   -c "GRANT SELECT,INSERT ON audit_events TO ${tenant_role}" >/dev/null
 restored_services=$(docker exec "$recovery_container" psql -U postgres -d "$database" -Atc "SELECT count(*) FROM services WHERE name='import-proof'")
@@ -91,4 +117,4 @@ recovery_tenant_url="postgres://${tenant_role}:${tenant_password}@127.0.0.1:${re
     go test ./internal/reconciler -run TestPostgresReconciliationContinuesAfterReplicaTermination -count=1
 )
 
-echo "Control-plane replica handoff and PostgreSQL backup/restore conformance passed"
+echo "Control-plane handoff, PostgreSQL backup/restore, and immutable WAL audit export conformance passed (${audit_archive_digest})"

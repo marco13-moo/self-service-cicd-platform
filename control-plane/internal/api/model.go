@@ -24,8 +24,9 @@ type Service struct {
 }
 
 type ServiceDeployment struct {
-	ContainerPort int    `json:"container_port"`
-	Dockerfile    string `json:"dockerfile"`
+	ContainerPort int                 `json:"container_port"`
+	Dockerfile    string              `json:"dockerfile"`
+	Egress        []ServiceEgressRule `json:"egress,omitempty"`
 }
 
 // NewService constructs a new immutable Service from an API contract.
@@ -38,6 +39,7 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 		if req.Deployment.Dockerfile != "" {
 			deployment.Dockerfile = req.Deployment.Dockerfile
 		}
+		deployment.Egress = append([]ServiceEgressRule(nil), req.Deployment.Egress...)
 	}
 	return Service{
 		TenantID:    DefaultTenantID,

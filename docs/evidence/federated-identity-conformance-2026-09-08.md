@@ -13,10 +13,16 @@
   obsolete tenant-selector authentication route is absent.
 - Kubernetes deployment and bootstrap Secret manifests pass client-side schema
   construction.
+- A disposable Keycloak 26.7.3 realm issued HTTPS-issuer tokens that passed the
+  production validator before and after RSA JWKS rotation. Removing the user's
+  mapped group made the next token fail closed, and the prior token failed after
+  its four-second TTL plus the validator's bounded 30-second clock-skew window.
+- The hybrid authorizer retained an independently tested static platform-admin
+  credential as the bounded rollback path.
 - The architecture graph contains 690 nodes and 1,378 edges with no missing,
   dangling, duplicate, self-loop, or collapsed edges.
 
-## Prepared PostgreSQL controls
+## PostgreSQL and audit-export controls
 
 Migration 5 enables and forces RLS on `tenant_auths`, creates the tenant status
 state machine and append-only `audit_events`, and installs a trigger rejecting
@@ -25,11 +31,12 @@ scope and audit immutability using the non-owner application role. The HA harnes
 also grants only the table privileges required by these new tests and preserves
 the records through backup and restoration.
 
-## Environmental limitation
+## Operational execution — 2026-09-09
 
-The Docker-based PostgreSQL HA harness could not execute because the local
-container runtime stopped responding before it created the source container.
-The kind API subsequently timed out during TLS negotiation, corroborating a
-local runtime outage rather than a test failure. The stuck harness was terminated
-without modifying repository or cluster state. Real PostgreSQL migration, RLS,
-trigger, backup, and restore execution must be rerun when the runtime is healthy.
+The restored Docker runtime executed the complete HA harness against PostgreSQL
+17.6. Migration 5, forced RLS through the non-owner application role, issuer
+uniqueness, tenant suspension, lease exclusion, audit mutation denial, command
+handoff after replica termination, backup, restoration, and the post-restore
+suite all passed. An insert-only logical publication and decoding slot observed
+the uniquely correlated audit event; the sealed segment SHA-256 was
+`e394ccc943e2766c53196abf7d42e1b75372b2547cab6d4434b4613478378625`.

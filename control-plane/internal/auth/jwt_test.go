@@ -149,3 +149,24 @@ func TestProviderConfigurationRejectsUnsafeJWKSURLs(t *testing.T) {
 		t.Fatal("credential-bearing JWKS URL was accepted")
 	}
 }
+
+func TestJWKSParserIgnoresProviderEncryptionKeys(t *testing.T) {
+	keys := &rotatingJWKS{}
+	key := keys.rotate(t, "signing")
+	n := base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes())
+	document, err := json.Marshal(map[string]any{"keys": []map[string]string{
+		{"kty": "RSA", "kid": "encryption", "alg": "RSA-OAEP", "use": "enc", "n": n, "e": e},
+		{"kty": "RSA", "kid": "signing", "alg": "RS256", "use": "sig", "n": n, "e": e},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseJWKS(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 1 || parsed["signing"].Algorithm != "RS256" {
+		t.Fatalf("unexpected eligible signing keys: %#v", parsed)
+	}
+}

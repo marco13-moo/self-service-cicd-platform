@@ -105,6 +105,7 @@ type PreviewDeployment struct {
 	CosignPublicKeySecret   string
 	PolicyPredicateType     string
 	VEXConfigMap            string
+	EgressPolicy            string
 }
 
 // WorkflowReference is a stable identifier for an execution-plane workflow.

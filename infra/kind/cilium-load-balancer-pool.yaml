@@ -1,0 +1,13 @@
+# This address belongs to kind's disposable Docker bridge. Production platform
+# operators must supply a site-specific LoadBalancer implementation instead.
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: preview-gateway-conformance
+spec:
+  disabled: false
+  blocks:
+    - cidr: 172.18.255.200/32
+  serviceSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: platform-preview
