@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: dns-system}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: rfc2136-tsig, namespace: dns-system}
+type: Opaque
+stringData: {secret: "${RFC2136_TSIG_SECRET}"}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: bind-config, namespace: dns-system}
+data:
+  named.conf: |
+    options { directory "/var/cache/bind"; listen-on { any; }; recursion no; };
+    key "external-dns" { algorithm hmac-sha256; secret "${RFC2136_TSIG_SECRET}"; };
+    zone "preview.internal" { type primary; file "/var/lib/bind/db.preview.internal"; allow-transfer { key external-dns; }; update-policy { grant external-dns zonesub ANY; }; };
+  db.preview.internal: |
+    $TTL 30
+    @ IN SOA ns.preview.internal. hostmaster.preview.internal. 1 30 30 300 30
+    @ IN NS ns.preview.internal.
+    ns IN A 192.0.2.53
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: bind, namespace: dns-system}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: bind}}
+  template:
+    metadata: {labels: {app: bind}}
+    spec:
+      containers:
+        - name: bind
+          image: internetsystemsconsortium/bind9:9.20
+          ports: [{name: dns-udp, containerPort: 53, protocol: UDP}, {name: dns-tcp, containerPort: 53, protocol: TCP}]
+          resources: {requests: {cpu: 20m, memory: 32Mi}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/bind/named.conf, subPath: named.conf}
+            - {name: zone-template, mountPath: /var/lib/bind-template/db.preview.internal, subPath: db.preview.internal}
+            - {name: zone, mountPath: /var/lib/bind}
+      initContainers:
+        - name: initialize-zone
+          image: busybox:1.37
+          command: [sh, -ceu, "cp /template/db.preview.internal /zone/db.preview.internal; chown -R 100:101 /zone"]
+          volumeMounts: [{name: zone-template, mountPath: /template}, {name: zone, mountPath: /zone}]
+      volumes:
+        - {name: config, configMap: {name: bind-config}}
+        - {name: zone-template, configMap: {name: bind-config}}
+        - {name: zone, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: bind, namespace: dns-system}
+spec:
+  clusterIP: 10.96.73.53
+  selector: {app: bind}
+  ports:
+    - {name: dns-udp, port: 53, targetPort: dns-udp, protocol: UDP}
+    - {name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP}

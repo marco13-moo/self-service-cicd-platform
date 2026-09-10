@@ -9,6 +9,8 @@ done
 : "${RELEASE_REGISTRY:?set RELEASE_REGISTRY, for example registry.example/platform}"
 : "${RELEASE_VERSION:?set RELEASE_VERSION to an immutable release identifier}"
 : "${COSIGN_KEY:?set COSIGN_KEY to a KMS URI or workload-identity key reference}"
+: "${CERTIFICATION_TIER:=managed-provider}"
+case "$CERTIFICATION_TIER" in local-conformance|on-prem-reference|managed-provider) ;; *) echo "invalid CERTIFICATION_TIER" >&2; exit 1;; esac
 
 case "$RELEASE_VERSION" in *[!A-Za-z0-9._-]*|'') echo "invalid RELEASE_VERSION" >&2; exit 1;; esac
 evidence_dir="${EVIDENCE_DIR:-release-evidence/$RELEASE_VERSION}"
@@ -33,7 +35,7 @@ release_one() {
 
 control=$(release_one control-plane Dockerfile)
 conformance=$(release_one network-conformance infra/conformance/Dockerfile)
-jq -n --arg version "$RELEASE_VERSION" --argjson control "$control" --argjson conformance "$conformance" \
-  '{schema:"platform.release/v1",version:$version,artifacts:{control_plane:$control,network_conformance:$conformance}}' >"$evidence_dir/release.json"
+jq -n --arg version "$RELEASE_VERSION" --arg tier "$CERTIFICATION_TIER" --argjson control "$control" --argjson conformance "$conformance" \
+  '{schema:"platform.release/v1",certification_tier:$tier,version:$version,artifacts:{control_plane:$control,network_conformance:$conformance}}' >"$evidence_dir/release.json"
 cosign sign-blob --yes --key "$COSIGN_KEY" --bundle "$evidence_dir/release.bundle.json" "$evidence_dir/release.json"
 echo "published signed release manifest: $evidence_dir/release.json"

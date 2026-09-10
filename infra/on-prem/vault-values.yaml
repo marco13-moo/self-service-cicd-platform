@@ -1,0 +1,7 @@
+injector: {enabled: false}
+server:
+  dataStorage: {enabled: true, size: 2Gi}
+  auditStorage: {enabled: true, size: 1Gi}
+  standalone: {enabled: true}
+  resources: {requests: {cpu: 50m, memory: 128Mi}}
+ui: {enabled: false}

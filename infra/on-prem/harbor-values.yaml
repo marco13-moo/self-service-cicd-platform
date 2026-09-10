@@ -1,0 +1,35 @@
+expose:
+  type: nodePort
+  tls: {enabled: false}
+# bootstrap-on-prem-reference.sh substitutes the selected kind node address so
+# Harbor's token challenge is reachable by the Colima Docker daemon.
+externalURL: http://127.0.0.1:30002
+trivy: {enabled: true}
+persistence:
+  enabled: true
+  persistentVolumeClaim:
+    registry: {size: 5Gi}
+    jobservice: {jobLog: {size: 1Gi}}
+    database: {size: 2Gi}
+    redis: {size: 1Gi}
+    trivy: {size: 2Gi}
+notary: {enabled: false}
+portal: {resources: {requests: {cpu: 20m, memory: 32Mi}}}
+core: {resources: {requests: {cpu: 50m, memory: 128Mi}}}
+jobservice: {resources: {requests: {cpu: 20m, memory: 64Mi}}}
+registry: {resources: {requests: {cpu: 50m, memory: 64Mi}}}
+database:
+  # Harbor's bundled database image is amd64-only in this pinned release and
+  # is unstable under Apple-Silicon emulation. Use the architecture-native,
+  # operator-reconciled PostgreSQL substrate instead.
+  type: external
+  external:
+    host: harbor-postgres-rw.harbor.svc.cluster.local
+    port: "5432"
+    username: harbor
+    coreDatabase: registry
+    existingSecret: harbor-database-credentials
+    sslmode: require
+  maxIdleConns: 20
+  maxOpenConns: 100
+redis: {internal: {resources: {requests: {cpu: 20m, memory: 32Mi}}}}

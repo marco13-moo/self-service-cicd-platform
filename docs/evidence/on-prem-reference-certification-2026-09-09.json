@@ -1,0 +1,23 @@
+{
+  "schema": "platform.provider-certification/v1",
+  "certification_tier": "on-prem-reference",
+  "status": "pass",
+  "profile_sha256": "3663cb51c645ed52f5656a6d50f656dd9174137cb999d5229d6e33656ca6dc41",
+  "release_sha256": "53dc59d3ad79ea287f5e97d351e6aba0fd9348e088b79ab7edf60cae953da417",
+  "completed_at": "2026-09-09T22:21:35Z",
+  "gates": [
+    {"name":"component-readiness","status":"pass","started_at":"2026-09-09T22:17:39Z","completed_at":"2026-09-09T22:17:40Z","log_sha256":"ea917b5f32023ba834e742ad9e21c06c492335e952e823f386664aaca570c36f"},
+    {"name":"release-evidence","status":"pass","started_at":"2026-09-09T22:17:40Z","completed_at":"2026-09-09T22:17:42Z","log_sha256":"80a53f76c7ed6969dade3b6ee47cdb753162db7c00be625448999d08bae77ed8"},
+    {"name":"on-prem-vault-workload-identity","status":"pass","started_at":"2026-09-09T22:17:42Z","completed_at":"2026-09-09T22:17:43Z","log_sha256":"df004b22616286984aff9197216faaf5264d9ab1082f7313bc087fc9fd99d8f3"},
+    {"name":"vault-workload-identity","status":"pass","started_at":"2026-09-09T22:17:43Z","completed_at":"2026-09-09T22:18:42Z","log_sha256":"b5dd03472e141040195c4aa7951ab4b8ce57a0f8a3afff0c4ee3264983b83058"},
+    {"name":"registry-retention-restore","status":"pass","started_at":"2026-09-09T22:18:42Z","completed_at":"2026-09-09T22:18:56Z","log_sha256":"059b40401929b185774476d0a9c593791850e9aa20075c0862489ffcd26a5d94"},
+    {"name":"harbor-evidence-backup-restore","status":"pass","started_at":"2026-09-09T22:18:56Z","completed_at":"2026-09-09T22:19:04Z","log_sha256":"cc75a368b44f5e898d8384b88ded150a1a205a25e806043c3ef08902443127ec"},
+    {"name":"postgres-failover-wal-backup","status":"pass","started_at":"2026-09-09T22:19:04Z","completed_at":"2026-09-09T22:19:16Z","log_sha256":"76433c2cc4b8dd604ef8020c3c55cadc86e56a1d7ebdfd36b4305cfe33475b12"},
+    {"name":"oidc-lifecycle","status":"pass","started_at":"2026-09-09T22:19:16Z","completed_at":"2026-09-09T22:20:25Z","log_sha256":"cc8069258144f2cc3f76087cf5dc41713441b1e8f9448662c9e0d3011929b80b"},
+    {"name":"cilium-edge-isolation","status":"pass","started_at":"2026-09-09T22:20:25Z","completed_at":"2026-09-09T22:21:28Z","log_sha256":"63a55997063479b8cfe6b68c704bc1fee0d10655d4729d0a08bc0bacfbba8327"},
+    {"name":"certificate-dns","status":"pass","started_at":"2026-09-09T22:21:28Z","completed_at":"2026-09-09T22:21:29Z","log_sha256":"c7924b55b310ec08ce77fc17c744ecdb425e516cc5d8e63d2174c43d2ccbe6b6"},
+    {"name":"gitops-drift","status":"pass","started_at":"2026-09-09T22:21:29Z","completed_at":"2026-09-09T22:21:31Z","log_sha256":"214eb6e9332625ac6d4a0b4909177b26300dec6e464d29cf52f0fb11fe1a4800"},
+    {"name":"observability-alerts","status":"pass","started_at":"2026-09-09T22:21:31Z","completed_at":"2026-09-09T22:21:31Z","log_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+    {"name":"developer-onboarding","status":"pass","started_at":"2026-09-09T22:21:31Z","completed_at":"2026-09-09T22:21:35Z","log_sha256":"4c95e7a398135aa2aef7e1dae410e6b858ce9c0cab3897723881d45ece7fa440"}
+  ]
+}

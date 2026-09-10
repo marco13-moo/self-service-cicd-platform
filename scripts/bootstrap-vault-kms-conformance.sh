@@ -9,6 +9,10 @@ for binary in kubectl jq; do
   command -v "$binary" >/dev/null || { echo "$binary is required" >&2; exit 1; }
 done
 
+kubectl create namespace argo --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl apply -f "$repo_root/infra/k8s/argo-env-admin-sa.yaml"
+kubectl apply -f "$repo_root/infra/k8s/argo-env-admin-clusterrole.yaml"
+kubectl apply -f "$repo_root/infra/k8s/argo-env-admin-clusterrolebinding.yaml"
 kubectl apply -f "$repo_root/infra/k8s/vault-kms-conformance.yaml"
 kubectl -n "$vault_namespace" rollout status deployment/vault --timeout=5m
 vault_pod=$(kubectl -n "$vault_namespace" get pod -l app=vault -o jsonpath='{.items[0].metadata.name}')
@@ -35,8 +39,8 @@ kubectl -n "$vault_namespace" cp "$policy_file" "$vault_pod:/tmp/signer.hcl"
 public_key=$("${vault_exec[@]}" read -format=json transit/keys/preview-signing | jq -r '.data.keys["1"].public_key')
 test -n "$public_key" && test "$public_key" != null
 kubectl -n argo create secret generic preview-cosign-public-conformance \
-  --labels platform.tenant=conformance \
   --from-literal=cosign.pub="$public_key" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n argo label secret preview-cosign-public-conformance platform.tenant=conformance --overwrite >/dev/null
 
 cat <<EOF
 Vault Transit conformance signer is ready.

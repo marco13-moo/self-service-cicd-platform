@@ -1,0 +1,11 @@
+grafana: {enabled: false}
+alertmanager:
+  enabled: true
+  alertmanagerSpec: {retention: 24h, storage: {}}
+prometheus:
+  prometheusSpec:
+    retention: 24h
+    resources: {requests: {cpu: 100m, memory: 256Mi}}
+kubeEtcd: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}

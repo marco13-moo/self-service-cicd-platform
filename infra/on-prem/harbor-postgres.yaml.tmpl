@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-database-credentials
+  namespace: harbor
+type: kubernetes.io/basic-auth
+stringData:
+  username: harbor
+  password: ${HARBOR_DATABASE_PASSWORD}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: harbor-postgres
+  namespace: harbor
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.6-standard-trixie
+  bootstrap:
+    initdb:
+      database: registry
+      owner: harbor
+      secret:
+        name: harbor-database-credentials
+      dataChecksums: true
+  storage:
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi

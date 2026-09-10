@@ -1,0 +1,7 @@
+dex: {enabled: false}
+notifications: {enabled: false}
+redis-ha: {enabled: false}
+controller: {resources: {requests: {cpu: 50m, memory: 128Mi}}}
+server: {resources: {requests: {cpu: 20m, memory: 64Mi}}}
+repoServer: {resources: {requests: {cpu: 20m, memory: 64Mi}}}
+redis: {resources: {requests: {cpu: 20m, memory: 32Mi}}}

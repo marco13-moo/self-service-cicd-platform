@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: identity-system}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: keycloak-data, namespace: identity-system}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 2Gi}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: keycloak, namespace: identity-system}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: keycloak}}
+  template:
+    metadata: {labels: {app: keycloak}}
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.7.3
+          args: [start-dev, --health-enabled=true]
+          env:
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, valueFrom: {secretKeyRef: {name: keycloak-bootstrap, key: username}}}
+            - {name: KC_BOOTSTRAP_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: keycloak-bootstrap, key: password}}}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /realms/master, port: http}, periodSeconds: 5}
+          resources: {requests: {cpu: 100m, memory: 384Mi}}
+          volumeMounts: [{name: data, mountPath: /opt/keycloak/data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: keycloak-data}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: keycloak, namespace: identity-system}
+spec: {selector: {app: keycloak}, ports: [{name: http, port: 8080, targetPort: http}]}

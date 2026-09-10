@@ -1,0 +1,17 @@
+{
+  "schema": "platform.release/v1",
+  "certification_tier": "on-prem-reference",
+  "version": "on-prem-20260909205240",
+  "artifacts": {
+    "control_plane": {
+      "image": "127.0.0.1:5002/library/control-plane@sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168",
+      "cluster_image": "172.18.0.2:30002/library/control-plane@sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168",
+      "digest": "sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168"
+    },
+    "network_conformance": {
+      "image": "127.0.0.1:5002/library/network-conformance@sha256:c94e58f85d4df8d7b7bce95695daa43794ac1b2de23173b51fe90786637dbbcc",
+      "cluster_image": "172.18.0.2:30002/library/network-conformance@sha256:c94e58f85d4df8d7b7bce95695daa43794ac1b2de23173b51fe90786637dbbcc",
+      "digest": "sha256:c94e58f85d4df8d7b7bce95695daa43794ac1b2de23173b51fe90786637dbbcc"
+    }
+  }
+}

@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: platform-database}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: minio-cnpg, namespace: platform-database}
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
+  ACCESS_SECRET_KEY: "${MINIO_ROOT_PASSWORD}"
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata: {name: platform-backups, namespace: platform-database}
+spec:
+  configuration:
+    destinationPath: s3://cnpg-backups/platform
+    endpointURL: http://minio.minio.svc.cluster.local:9000
+    s3Credentials:
+      accessKeyId: {name: minio-cnpg, key: ACCESS_KEY_ID}
+      secretAccessKey: {name: minio-cnpg, key: ACCESS_SECRET_KEY}
+    wal: {compression: gzip, maxParallel: 4}
+    data: {compression: gzip}
+  retentionPolicy: 7d
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: platform-postgres, namespace: platform-database}
+spec:
+  instances: 3
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+  storage: {size: 2Gi}
+  walStorage: {size: 1Gi}
+  monitoring: {enablePodMonitor: true}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters: {barmanObjectName: platform-backups}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata: {name: platform-postgres, namespace: platform-database}
+spec:
+  schedule: "0 0 1 * * *"
+  backupOwnerReference: self
+  cluster: {name: platform-postgres}
+  method: plugin
+  pluginConfiguration: {name: barman-cloud.cloudnative-pg.io}

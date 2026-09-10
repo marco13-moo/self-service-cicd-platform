@@ -1,0 +1,38 @@
+apiVersion: platform.certification/v1
+kind: ProviderProfile
+metadata:
+  name: on-prem-reference
+spec:
+  tier: on-prem-reference
+  components:
+    kubernetes: {provider: kind, version: "1.37.0"}
+    cni: {provider: cilium, version: "1.20.1"}
+    registry: {provider: harbor, chartVersion: "1.18.4", appVersion: "2.14.4", constraint: "2.15.2 ARM64 startup panic"}
+    admission: {provider: kyverno, chartVersion: "3.9.0", appVersion: "1.19.0"}
+    kms: {provider: vault-transit, chartVersion: "0.34.1"}
+    postgres: {provider: cloudnative-pg, chartVersion: "0.29.0"}
+    postgresBackupPlugin: {provider: barman-cloud, chartVersion: "0.8.0"}
+    objectStorage: {provider: minio, chartVersion: "5.4.0"}
+    identity: {provider: keycloak, imageVersion: "26.7.3"}
+    certificates: {provider: cert-manager, chartVersion: "1.21.1"}
+    dns: {provider: external-dns, chartVersion: "1.21.1", backend: rfc2136}
+    gitops: {provider: argo-cd, chartVersion: "10.8.4"}
+    monitoring: {provider: kube-prometheus-stack, chartVersion: "90.0.0"}
+  objectives:
+    maximumRPOSeconds: 300
+    maximumRTOSeconds: 1800
+    reconciliationP99Seconds: 120
+  requiredGates:
+    - component-readiness
+    - release-evidence
+    - on-prem-vault-workload-identity
+    - vault-workload-identity
+    - registry-retention-restore
+    - harbor-evidence-backup-restore
+    - postgres-failover-wal-backup
+    - oidc-lifecycle
+    - cilium-edge-isolation
+    - certificate-dns
+    - gitops-drift
+    - observability-alerts
+    - developer-onboarding

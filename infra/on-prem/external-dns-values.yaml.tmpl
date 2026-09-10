@@ -1,0 +1,15 @@
+provider: rfc2136
+policy: sync
+registry: txt
+txtOwnerId: self-service-cicd-on-prem
+domainFilters: [preview.internal]
+sources: [service, ingress, gateway-httproute]
+extraArgs:
+  - --rfc2136-host=10.96.73.53
+  - --rfc2136-port=53
+  - --rfc2136-zone=preview.internal
+  - --rfc2136-tsig-keyname=external-dns
+  - --rfc2136-tsig-secret=${RFC2136_TSIG_SECRET}
+  - --rfc2136-tsig-secret-alg=hmac-sha256
+  - --rfc2136-tsig-axfr
+resources: {requests: {cpu: 20m, memory: 64Mi}}

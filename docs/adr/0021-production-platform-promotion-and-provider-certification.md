@@ -33,6 +33,23 @@ and manifest drift before mutation, uses rollout health and conformance gates,
 and automatically reapplies the preceding signed release on failure. Disaster
 recovery is exercised, not inferred from backup existence.
 
+### Certification tiers
+
+Certification is explicitly tiered; evidence from one tier cannot satisfy a
+higher tier:
+
+1. `local-conformance`: disposable functional verification on kind.
+2. `on-prem-reference`: persistent, version-pinned Harbor, Vault Transit,
+   CloudNativePG, MinIO, Keycloak, Cilium, cert-manager, external-dns, Argo CD,
+   Prometheus, and Alertmanager with destructive recovery exercises.
+3. `managed-provider`: selected cloud KMS, hosted registry/database/object
+   storage, cloud workload identity, DNS, and LoadBalancer certification.
+
+The release manifest and certification evidence MUST name the tier. Production
+may use the on-prem reference tier when its infrastructure and availability
+assumptions match that profile. Cloud-provider claims remain prohibited until
+the managed-provider suite passes.
+
 ## Consequences
 
 - A release can be promoted without rebuilding it.

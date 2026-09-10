@@ -1,0 +1,6 @@
+mode: standalone
+replicas: 1
+persistence: {enabled: true, size: 5Gi}
+resources: {requests: {cpu: 50m, memory: 128Mi}}
+buckets:
+  - {name: cnpg-backups, policy: none, purge: false}

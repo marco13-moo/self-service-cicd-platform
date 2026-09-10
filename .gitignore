@@ -23,3 +23,5 @@ control-plane/data/
 *.log
 .keycloak-tls.*
 graphify-out/
+.on-prem-secrets/
+certification-evidence/
