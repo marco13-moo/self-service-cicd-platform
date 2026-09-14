@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - infra/on-prem/platform/namespace.yaml
+  - infra/on-prem/platform/config.yaml
+  - infra/k8s/control-plane-serviceaccount.yaml
+  - infra/k8s/control-plane-role.yaml
+  - infra/k8s/control-plane-rolebinding.yaml
+  - infra/k8s/control-plane-service.yaml
+  - infra/k8s/control-plane-deployment.yaml
+  - infra/k8s/control-plane-pdb.yaml
+  - argo/workflowtemplates/env-create-template.yaml
+  - argo/workflowtemplates/env-deploy-template.yaml
+  - argo/workflowtemplates/env-destroy-template.yaml
+  - argo/workflowtemplates/env-ttl-cleanup-template.yaml
+  - infra/k8s/tenant-trust-governance-policy.yaml
+  - infra/k8s/preview-image-signature-policy.yaml
+  - infra/k8s/preview-vex-governance-policy.yaml
+  - infra/observability/platform-prometheus-rules.yaml
+patches:
+  - path: infra/on-prem/platform/deployment-patch.yaml
+  - path: infra/on-prem/platform/deployment-env-patch.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: control-plane
+images:
+  - name: self-service-cicd-control-plane
+    newName: 172.18.0.2:30002/library/control-plane
+    digest: sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168

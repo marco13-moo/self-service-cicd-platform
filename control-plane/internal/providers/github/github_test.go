@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+func TestNewUsesAirGappedAPIEndpoint(t *testing.T) {
+	t.Setenv("GITHUB_API_BASE_URL", "http://git-api.git-system.svc.cluster.local/")
+	provider := New()
+	if provider.baseURL != "http://git-api.git-system.svc.cluster.local/" {
+		t.Fatalf("unexpected API endpoint: %q", provider.baseURL)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }

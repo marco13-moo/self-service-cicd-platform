@@ -32,6 +32,7 @@ func NewRouter(store *ServiceStore, commandStore SCMCommandStore, envOrchestrato
 	}
 	mux.Handle("POST /api/v1/services", authorizer.Require(TenantDeveloper, http.HandlerFunc(handlers.CreateService)))
 	mux.Handle("GET /api/v1/services", authorizer.Require(TenantViewer, http.HandlerFunc(handlers.ListServices)))
+	mux.Handle("DELETE /api/v1/services/{name}", authorizer.Require(TenantDeveloper, http.HandlerFunc(handlers.DeleteService)))
 	mux.Handle("GET /api/v1/catalog/services", authorizer.Require(TenantViewer, http.HandlerFunc(handlers.ListCatalogServices)))
 	mux.Handle("GET /api/v1/services/{name}/diagnostics", authorizer.Require(TenantViewer, http.HandlerFunc(handlers.GetServiceDiagnostics)))
 	mux.Handle("POST /api/v1/environments", authorizer.Require(TenantDeveloper, http.HandlerFunc(handlers.CreateEnvironment)))
@@ -56,6 +57,7 @@ func developmentTenantRouter(mux *http.ServeMux, handlers *Handlers) http.Handle
 	}
 	mux.Handle("POST /api/v1/services", wrap(handlers.CreateService))
 	mux.Handle("GET /api/v1/services", wrap(handlers.ListServices))
+	mux.Handle("DELETE /api/v1/services/{name}", wrap(handlers.DeleteService))
 	mux.Handle("GET /api/v1/catalog/services", wrap(handlers.ListCatalogServices))
 	mux.Handle("GET /api/v1/services/{name}/diagnostics", wrap(handlers.GetServiceDiagnostics))
 	mux.Handle("POST /api/v1/environments", wrap(handlers.CreateEnvironment))

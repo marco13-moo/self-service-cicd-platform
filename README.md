@@ -348,6 +348,13 @@ The provider-neutral domain, adapter, authentication, and reconciliation model i
 specified in [`ADR 0009`](docs/adr/0009-provider-neutral-source-control-boundary.md).
 Revision convergence and failure semantics are specified in
 [`ADR 0010`](docs/adr/0010-revision-aware-preview-reconciliation.md).
+
+The GitOps installation, air-gap contract, complete on-prem acceptance
+transaction, and day-two recovery model are specified in
+[`ADR 0023`](docs/adr/0023-on-prem-platform-installation-and-day-2-operations.md).
+Render and install the certified on-prem platform with
+`scripts/render-on-prem-platform.sh` and `scripts/install-on-prem-platform.sh`;
+`scripts/validate-on-prem-platform.sh` is its singular acceptance entry point.
 TTL enforcement and generation-safe deployment observation are specified in
 [`ADR 0011`](docs/adr/0011-ttl-enforcement-and-deployment-observation.md).
 OCI construction, namespace deployment, and preview routing are specified in

@@ -114,6 +114,10 @@ func (*fakeOrchestrator) GetTTLStatus(context.Context, *orchestrator.Environment
 func (f *fakeOrchestrator) GetDeployStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
 	return f.deployStatus, nil
 }
+
+func (f *fakeOrchestrator) GetDestroyStatus(context.Context, *orchestrator.Environment) (*wf.WorkflowStatus, error) {
+	return &wf.WorkflowStatus{Phase: wf.WorkflowSucceeded}, nil
+}
 func (*fakeOrchestrator) Ready(context.Context) error { return nil }
 
 func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {

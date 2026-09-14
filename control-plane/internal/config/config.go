@@ -42,6 +42,7 @@ type GitHubConfig struct {
 	WebhookSecret  string
 	AppID          string
 	PrivateKeyPath string
+	CloneBaseURL   string
 }
 
 type BitbucketConfig struct{ WebhookSecret, OAuthClientID, OAuthClientSecret string }

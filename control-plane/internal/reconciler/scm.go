@@ -60,6 +60,7 @@ type PreviewRuntimeConfig struct {
 	CosignPublicKeySecret   string
 	PolicyPredicateType     string
 	VEXConfigMap            string
+	GitHubCloneBaseURL      string
 }
 
 func NewSCMCommandReconciler(store *api.ServiceStore, commands api.SCMCommandStore, envOrchestrator orchestrator.EnvironmentOrchestrator, previewTTL time.Duration, preview PreviewRuntimeConfig, logger *zap.Logger, configuredReporters ...map[scm.Provider]scm.StatusReporter) *SCMCommandReconciler {
@@ -242,8 +243,12 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.Service
 			signatureReference = env.Spec.Source.SignatureReference
 			policyAttestation = env.Spec.Source.PolicyAttestation
 		}
+		cloneURL := service.RepoURL
+		if command.Provider == scm.ProviderGitHub && strings.TrimSpace(r.preview.GitHubCloneBaseURL) != "" {
+			cloneURL = strings.TrimRight(r.preview.GitHubCloneBaseURL, "/") + "/" + strings.TrimPrefix(command.Repository, "/") + ".git"
+		}
 		env.Spec.Source = &orchestrator.SourceRevision{
-			Provider: string(command.Provider), Repository: command.Repository, CloneURL: service.RepoURL,
+			Provider: string(command.Provider), Repository: command.Repository, CloneURL: cloneURL,
 			PullRequest: command.PullRequest, DesiredSHA: command.HeadSHA, DeployedSHA: deployed,
 			Generation: generation, DeploymentPhase: "Pending", DesiredImage: deployment.ImageRef,
 			DeployedImage: deployedImage, DesiredPreviewURL: deployment.PreviewURL, PreviewURL: previewURL,

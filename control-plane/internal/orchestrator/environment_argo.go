@@ -266,6 +266,17 @@ func (e *ArgoEnvironmentOrchestrator) GetDeployStatus(ctx context.Context, env *
 	return &w.Status, nil
 }
 
+func (e *ArgoEnvironmentOrchestrator) GetDestroyStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error) {
+	if env.DestroyWorkflow == nil {
+		return nil, nil
+	}
+	w, err := e.exec.GetWorkflow(ctx, env.DestroyWorkflow.Name)
+	if err != nil {
+		return nil, err
+	}
+	return &w.Status, nil
+}
+
 func (e *ArgoEnvironmentOrchestrator) Ready(ctx context.Context) error {
 	return e.exec.Ready(ctx)
 }

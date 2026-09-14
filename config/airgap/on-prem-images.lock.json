@@ -1,0 +1,9 @@
+{
+  "schema": "platform.airgap-images/v1",
+  "profile": "on-prem-reference",
+  "images": [
+    {"name":"control-plane","source":"127.0.0.1:5002/library/control-plane@sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168"},
+    {"name":"network-conformance","source":"127.0.0.1:5002/library/network-conformance@sha256:c94e58f85d4df8d7b7bce95695daa43794ac1b2de23173b51fe90786637dbbcc"}
+  ],
+  "discovery": "Provider chart images are appended from the certified live profile by scripts/generate-airgap-image-lock.sh; generation fails on any mutable or unresolved image."
+}

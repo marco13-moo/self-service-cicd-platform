@@ -607,6 +607,51 @@ func (s *ServiceStore) List() []Service {
 	return out
 }
 
+// Delete removes a service only after every preview has been destroyed. This
+// makes tenant offboarding explicit without permitting orphaned workloads.
+func (s *ServiceStore) Delete(name string) error {
+	if s.db != nil {
+		tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		var environments int
+		if err = tx.QueryRow(`SELECT count(*) FROM environments WHERE tenant_id=$1 AND document->'spec'->>'service'=$2`, s.tenantID, name).Scan(&environments); err != nil {
+			return err
+		}
+		if environments != 0 {
+			return fmt.Errorf("service has preview environments")
+		}
+		result, err := tx.Exec(`DELETE FROM services WHERE tenant_id=$1 AND name=$2`, s.tenantID, name)
+		if err != nil {
+			return err
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return ErrServiceNotFound
+		}
+		return tx.Commit()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, environment := range s.environments {
+		if normalizeTenantID(TenantID(environment.TenantID)) == normalizeTenantID(s.tenantID) && environment.Spec.Service == name {
+			return fmt.Errorf("service has preview environments")
+		}
+	}
+	key := s.stateKey(name)
+	if _, ok := s.services[key]; !ok {
+		return ErrServiceNotFound
+	}
+	previous := s.services[key]
+	delete(s.services, key)
+	if err := s.persistLocked(); err != nil {
+		s.services[key] = previous
+		return err
+	}
+	return nil
+}
+
 func (s *ServiceStore) FindServiceByRepository(repository string) (Service, error) {
 	if s.db != nil {
 		for _, service := range s.listServicesPostgres() {

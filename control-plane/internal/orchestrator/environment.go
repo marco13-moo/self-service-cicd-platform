@@ -180,6 +180,7 @@ type EnvironmentOrchestrator interface {
 
 	GetTTLStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
 	GetDeployStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
+	GetDestroyStatus(ctx context.Context, env *Environment) (*wf.WorkflowStatus, error)
 
 	// Ready verifies connectivity to the authoritative execution plane.
 	Ready(ctx context.Context) error

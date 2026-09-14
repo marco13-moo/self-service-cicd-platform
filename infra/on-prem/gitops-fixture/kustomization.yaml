@@ -1,1 +1,1 @@
-resources: [configmap.yaml]
+resources: [configmap.yaml, deployment.yaml]

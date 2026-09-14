@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: guestbook-ui}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: guestbook-ui}}
+  template:
+    metadata: {labels: {app: guestbook-ui}}
+    spec:
+      containers:
+        - name: guestbook-ui
+          image: registry.k8s.io/ingress-nginx/controller@sha256:d5f0807737e55f7e43a8015ec20f7a86b7e2229cbe0b41472f84e8727f0b9fe9
+          args: ["/nginx-ingress-controller", "--version"]

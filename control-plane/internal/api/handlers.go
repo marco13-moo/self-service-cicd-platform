@@ -195,6 +195,20 @@ func (h *Handlers) ListServices(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(services)
 }
 
+func (h *Handlers) DeleteService(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := h.scopedStore(r).Delete(name); err != nil {
+		if errors.Is(err, ErrServiceNotFound) {
+			http.Error(w, "service not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	h.audit(r, "service.deleted", "service", name, "succeeded", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // CatalogService is deliberately presentation-oriented: it gives developers a
 // stable inventory view without exposing persistence documents or credentials.
 type CatalogService struct {
@@ -336,6 +350,24 @@ func (h *Handlers) DeleteEnvironment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("environment not found", zap.Error(err))
 		http.Error(w, "environment not found", http.StatusNotFound)
+		return
+	}
+	if env.DestroyWorkflow != nil {
+		status, statusErr := h.envOrchestrator.GetDestroyStatus(ctx, env)
+		if statusErr != nil {
+			http.Error(w, "failed to observe destroy workflow", http.StatusBadGateway)
+			return
+		}
+		if status == nil || status.Phase != "Succeeded" {
+			http.Error(w, "destroy workflow has not succeeded", http.StatusConflict)
+			return
+		}
+		if err := store.DeleteEnvironment(name); err != nil {
+			http.Error(w, "failed to finalize environment deletion", http.StatusInternalServerError)
+			return
+		}
+		h.audit(r, "environment.destroyed", "environment", name, "succeeded", map[string]any{"namespace": env.Spec.Namespace})
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 

@@ -23,9 +23,16 @@ type Provider struct {
 func New() *Provider {
 	return &Provider{
 		client:  &http.Client{Timeout: 10 * time.Second},
-		baseURL: defaultAPIBaseURL,
+		baseURL: envOr("GITHUB_API_BASE_URL", defaultAPIBaseURL),
 		token:   os.Getenv("GITHUB_TOKEN"),
 	}
+}
+
+func envOr(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func (p *Provider) Supports(repoURL string) bool {
