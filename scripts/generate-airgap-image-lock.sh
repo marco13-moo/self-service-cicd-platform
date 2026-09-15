@@ -19,6 +19,18 @@ for pair in "preview-builder=$PREVIEW_BUILDER_IMAGE" "preview-scanner=$PREVIEW_S
   printf '%s\t%s\n' "$name" "$image" >>"$temporary"
 done
 
+# Include every digest-pinned workload image declared by the platform itself;
+# otherwise a dormant workflow or fixture can be omitted merely because no pod
+# happened to reference it during lock generation.
+kubectl kustomize "$root" | awk '$1 == "image:" { print $2 }' | while IFS= read -r image; do
+  [[ "$image" == *'{{'* || "$image" == *'${'* ]] && continue
+  image=${image#\'}; image=${image%\'}
+  [[ "$image" =~ @sha256:[a-f0-9]{64}$ ]] || { echo "mutable declared image: $image" >&2; exit 1; }
+  repository=${image%@*}
+  name="declared-${repository//[^[:alnum:]._-]/-}"
+  printf '%s\t%s\n' "$name" "$image"
+done >>"$temporary"
+
 # imageID is the runtime-resolved identity. Prefer it over PodSpec image names,
 # which may contain mutable chart defaults.
 kubectl get pods -A -o json | jq -r '

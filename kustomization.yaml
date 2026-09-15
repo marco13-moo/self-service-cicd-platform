@@ -3,12 +3,17 @@ kind: Kustomization
 resources:
   - infra/on-prem/platform/namespace.yaml
   - infra/on-prem/platform/config.yaml
+  - infra/on-prem/platform/git-fixture.yaml
   - infra/k8s/control-plane-serviceaccount.yaml
   - infra/k8s/control-plane-role.yaml
   - infra/k8s/control-plane-rolebinding.yaml
   - infra/k8s/control-plane-service.yaml
   - infra/k8s/control-plane-deployment.yaml
   - infra/k8s/control-plane-pdb.yaml
+  - infra/k8s/argo-env-admin-sa.yaml
+  - infra/k8s/argo-env-admin-clusterrole.yaml
+  - infra/k8s/argo-env-admin-clusterrolebinding.yaml
+  - infra/k8s/argo-workflow-executor-role.yaml
   - argo/workflowtemplates/env-create-template.yaml
   - argo/workflowtemplates/env-deploy-template.yaml
   - argo/workflowtemplates/env-destroy-template.yaml

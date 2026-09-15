@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: http://git.git-system.svc.cluster.local/platform/self-service-cicd-platform.git
+    repoURL: git://git.git-system.svc.cluster.local/platform/self-service-cicd-platform.git
     targetRevision: main
     path: .
   destination:

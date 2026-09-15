@@ -17,6 +17,7 @@ spec:
     certificates: {provider: cert-manager, chartVersion: "1.21.1"}
     dns: {provider: external-dns, chartVersion: "1.21.1", backend: rfc2136}
     gitops: {provider: argo-cd, chartVersion: "10.8.4"}
+    workflows: {provider: argo-workflows, chartVersion: "2.0.5", appVersion: "4.1.2"}
     monitoring: {provider: kube-prometheus-stack, chartVersion: "90.0.0"}
   objectives:
     maximumRPOSeconds: 300

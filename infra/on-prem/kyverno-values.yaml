@@ -2,7 +2,8 @@ admissionController:
   replicas: 1
   container:
     resources:
-      requests: {cpu: 50m, memory: 128Mi}
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 768Mi}
 backgroundController:
   replicas: 1
   resources:
@@ -14,4 +15,5 @@ cleanupController:
 reportsController:
   replicas: 1
   resources:
-    requests: {cpu: 20m, memory: 64Mi}
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}

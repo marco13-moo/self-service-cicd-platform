@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: git-system
+  labels: {pod-security.kubernetes.io/enforce: restricted}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: airgap-repository-source, namespace: git-system}
+data:
+  Dockerfile: |
+    FROM busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+    COPY index.html /www/index.html
+    CMD ["httpd", "-f", "-p", "8080", "-h", "/www"]
+  index.html: |
+    <!doctype html><title>ADR 0023 air-gap preview</title>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: airgap-repository-api, namespace: git-system}
+data:
+  repository.json: '{"name":"fixture","full_name":"acme/fixture"}'
+  contents.json: '[{"name":"Dockerfile","type":"file"}]'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: airgap-git, namespace: git-system}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: airgap-git}}
+  template:
+    metadata: {labels: {app: airgap-git}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      initContainers:
+        - name: initialize-repository
+          image: alpine/git@sha256:4a0e72d49596a1f5d3701aeedafdadc5c0da4062be4657c7bdc4017387f591cc
+          command: [sh, -c]
+          args:
+            - |
+              cp /source/Dockerfile /source/index.html /work/
+              cd /work
+              git init
+              git config user.name platform-conformance
+              git config user.email platform-conformance@invalid.example
+              git add Dockerfile index.html
+              git commit -m 'fixture: add air-gap preview'
+              git clone --bare . /repositories/acme/fixture.git
+              git -C /repositories/acme/fixture.git update-server-info
+              git clone --bare /bundle/platform.bundle /repositories/platform/self-service-cicd-platform.git
+              git -C /repositories/platform/self-service-cicd-platform.git update-server-info
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: source, mountPath: /source, readOnly: true}
+            - {name: work, mountPath: /work}
+            - {name: repositories, mountPath: /repositories}
+            - {name: platform-bundle, mountPath: /bundle, readOnly: true}
+      containers:
+        - name: git
+          image: alpine/git@sha256:4a0e72d49596a1f5d3701aeedafdadc5c0da4062be4657c7bdc4017387f591cc
+          command: [git, daemon, --reuseaddr, --base-path=/repositories, --export-all, --verbose, /repositories]
+          ports: [{name: git, containerPort: 9418}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: repositories, mountPath: /repositories, readOnly: true}]
+        - name: api
+          image: busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+          command: [sh, -c]
+          args:
+            - mkdir -p /www/repos/acme/fixture && cp /api/repository.json /www/repos/acme/fixture/index.html && cp /api/contents.json /www/repos/acme/fixture/contents && exec httpd -f -p 8080 -h /www
+          ports: [{name: api, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: api-source, mountPath: /api, readOnly: true}
+            - {name: api-work, mountPath: /www}
+      volumes:
+        - {name: source, configMap: {name: airgap-repository-source}}
+        - {name: api-source, configMap: {name: airgap-repository-api}}
+        - {name: work, emptyDir: {}}
+        - {name: repositories, emptyDir: {}}
+        - {name: platform-bundle, configMap: {name: platform-repository-bundle}}
+        - {name: api-work, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: git, namespace: git-system}
+spec:
+  selector: {app: airgap-git}
+  ports:
+    - {name: git, port: 9418, targetPort: git}
+    - {name: api, port: 8080, targetPort: api}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: git-api, namespace: git-system}
+spec: {selector: {app: airgap-git}, ports: [{name: http, port: 80, targetPort: api}]}

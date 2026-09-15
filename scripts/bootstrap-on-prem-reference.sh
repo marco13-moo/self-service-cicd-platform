@@ -49,6 +49,8 @@ trap 'rm -f "$dns_values"' EXIT
 RFC2136_TSIG_SECRET=$rfc2136_secret envsubst '${RFC2136_TSIG_SECRET}' <"$root/infra/on-prem/external-dns-values.yaml.tmpl" >"$dns_values"
 helm upgrade --install external-dns external-dns/external-dns --version 1.21.1 -n dns-system -f "$dns_values" --wait --timeout 10m
 helm upgrade --install argo-cd argo/argo-cd --version 10.8.4 -n argocd --create-namespace -f "$root/infra/on-prem/argocd-values.yaml" --wait --timeout 15m
+helm upgrade --install argo-workflows argo/argo-workflows --version 2.0.5 -n argo --create-namespace \
+  --set crds.full=false --set server.enabled=false --wait --timeout 15m
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --version 90.0.0 -n monitoring --create-namespace -f "$root/infra/on-prem/monitoring-values.yaml" --wait --timeout 15m
 kubectl apply -f "$root/infra/observability/platform-prometheus-rules.yaml"
 

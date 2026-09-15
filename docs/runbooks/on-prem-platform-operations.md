@@ -3,11 +3,13 @@
 ## Installation
 
 Verify the signed `platform.release/v1` manifest, generate the complete image
-lock from the certified cluster, mirror it with `mirror-on-prem-images.sh`, and
-publish this repository plus `infra/on-prem/gitops-fixture` to the site-local
-Git service. Render with `render-on-prem-platform.sh`, synchronize the CNPG
-application credential with `install-on-prem-platform.sh`, and bootstrap
-`infra/on-prem/platform/argocd-application.yaml`. Run
+lock from the certified cluster and mirror it with
+`mirror-on-prem-images.sh`. Render with `render-on-prem-platform.sh`; then
+`install-on-prem-platform.sh` materializes the exact candidate workspace as an
+in-cluster Git bundle, synchronizes the CNPG credential and locally governed
+bootstrap credentials, applies the platform, and establishes the Argo CD
+application. Argo Workflows is a distinct, version-pinned provider and must be
+installed by `bootstrap-on-prem-reference.sh` before this step. Run
 `validate-on-prem-platform.sh`; installation is incomplete until its signed BOM
 reports every gate passing.
 

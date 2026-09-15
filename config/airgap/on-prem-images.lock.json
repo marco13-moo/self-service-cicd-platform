@@ -1,9 +1,211 @@
 {
   "schema": "platform.airgap-images/v1",
   "profile": "on-prem-reference",
+  "generated_at": "2026-09-15T11:50:26Z",
   "images": [
-    {"name":"control-plane","source":"127.0.0.1:5002/library/control-plane@sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168"},
-    {"name":"network-conformance","source":"127.0.0.1:5002/library/network-conformance@sha256:c94e58f85d4df8d7b7bce95695daa43794ac1b2de23173b51fe90786637dbbcc"}
-  ],
-  "discovery": "Provider chart images are appended from the certified live profile by scripts/generate-airgap-image-lock.sh; generation fails on any mutable or unresolved image."
+    {
+      "name": "control_plane",
+      "source": "172.18.0.2:30002/library/control-plane@sha256:ca822e51467665b06b34a91fe709a37a32f9b844bd2bd8ca2228cde854066168"
+    },
+    {
+      "name": "network_conformance",
+      "source": "172.18.0.2:30002/library/network-conformance@sha256:c94e58f85d4df8d7b7bce95695daa43794ac1b2de23173b51fe90786637dbbcc"
+    },
+    {
+      "name": "preview-builder",
+      "source": "moby/buildkit@sha256:80b15f0735e87bab7bf59ec4d695dfb4a7cfb25521cf56dc75d6f256285b63ef"
+    },
+    {
+      "name": "preview-scanner",
+      "source": "aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
+    },
+    {
+      "name": "preview-cosign",
+      "source": "ghcr.io/sigstore/cosign/cosign@sha256:278d0b6c728608731d8fa2123c00c8b8dd6207aa53f079b195dea906b29ab0b2"
+    },
+    {
+      "name": "preview-vault",
+      "source": "hashicorp/vault@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10"
+    },
+    {
+      "name": "declared-alpine-git",
+      "source": "alpine/git@sha256:4a0e72d49596a1f5d3701aeedafdadc5c0da4062be4657c7bdc4017387f591cc"
+    },
+    {
+      "name": "declared-busybox",
+      "source": "busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+    },
+    {
+      "name": "declared-bitnami-kubectl",
+      "source": "bitnami/kubectl@sha256:e0fcb25c485a8ad0665d0dd4b4a67cefb6baee32b0e3b19f54f1b468c49c1ed5"
+    },
+    {
+      "name": "argo/argo-workflows-crd-install-9phqc/apply",
+      "source": "quay.io/argoproj/argo-workflows-crdinstaller@sha256:aba6f00943af0c306c409b4f95a294e4a506ac1aed4fecccb1cb5ce4c5f7f457"
+    },
+    {
+      "name": "argocd/argo-cd-argocd-application-controller-0/application-controller",
+      "source": "quay.io/argoproj/argocd@sha256:e2aadfae709d904e87f46ba4aa49601d827b3022db22cd4d03aae816a2e7097b"
+    },
+    {
+      "name": "argocd/argo-cd-argocd-redis-9bfc89486-gzpqb/redis",
+      "source": "ecr-public.aws.com/docker/library/redis@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763"
+    },
+    {
+      "name": "cert-manager/cert-manager-66b9bfb996-xx8d7/cert-manager-controller",
+      "source": "quay.io/jetstack/cert-manager-controller@sha256:416a2d76870d996460e62bd7f521bf14fa017be9e3e904aab92163a331fcb61a"
+    },
+    {
+      "name": "cert-manager/cert-manager-cainjector-5cc56c6f78-scd87/cert-manager-cainjector",
+      "source": "quay.io/jetstack/cert-manager-cainjector@sha256:ccf6b919ec0500745a47a910118f834f9636d0aac1ff221245cd2557ed8c7c98"
+    },
+    {
+      "name": "cert-manager/cert-manager-webhook-579c6dd789-fhpnf/cert-manager-webhook",
+      "source": "quay.io/jetstack/cert-manager-webhook@sha256:d8b3961b51c8c7320633f8208dc46bf88aa13804d0f7cbe48a096b2c523cee42"
+    },
+    {
+      "name": "cnpg-system/cloudnative-pg-5bdf5cb485-sv6gz/manager",
+      "source": "ghcr.io/cloudnative-pg/cloudnative-pg@sha256:a2701eb97cdd2a34b1fdb2cb51987f544b706e40bec72ae7146cd8580efefebb"
+    },
+    {
+      "name": "cnpg-system/plugin-barman-cloud-6d87cf878-gc86t/barman-cloud",
+      "source": "ghcr.io/cloudnative-pg/plugin-barman-cloud@sha256:563c680fe7fda3466ca2b1f55a1397ed2ddc9e760360107dd7724f1959c1a536"
+    },
+    {
+      "name": "dns-system/bind-688df6657c-j2b2r/bind",
+      "source": "docker.io/internetsystemsconsortium/bind9@sha256:a5c5fc5227be83dca0001ad72e2398be2aeb183c6ddf7e2ed41dba63c84e0021"
+    },
+    {
+      "name": "dns-system/external-dns-65b4674bfc-4h8p2/external-dns",
+      "source": "registry.k8s.io/external-dns/external-dns@sha256:f53faaf71cb270d1ca9dce6ea0c94bfebf1a18696263487f0fbc74b9bf2bd7ff"
+    },
+    {
+      "name": "harbor/harbor-core-6655875dbc-ndjh8/core",
+      "source": "docker.io/goharbor/harbor-core@sha256:8d3e4309e45488a013c2e3ad7c60c17581bba3ff718b545e2b40c7363f1a62c9"
+    },
+    {
+      "name": "harbor/harbor-jobservice-64bc459b9b-tljtl/jobservice",
+      "source": "docker.io/goharbor/harbor-jobservice@sha256:af660ff1371cd9bab9e586223742d91a0f3000cfec406e23f57991e57c2f8443"
+    },
+    {
+      "name": "harbor/harbor-nginx-f59b478db-ckt6p/nginx",
+      "source": "docker.io/goharbor/nginx-photon@sha256:6724588f90300ffeba2e74e2518665c2c2dd41aa259ff4fdfe06d439e757870b"
+    },
+    {
+      "name": "harbor/harbor-portal-6757646489-xw2g6/portal",
+      "source": "docker.io/goharbor/harbor-portal@sha256:71a9cc16e66761e17413d824f8a21fc4d28e120c03d2b98da7831b9d832bbb46"
+    },
+    {
+      "name": "harbor/harbor-postgres-1/postgres",
+      "source": "ghcr.io/cloudnative-pg/postgresql@sha256:2114d9615a5c56004ff4f586032d0e61cbaca7c9449d3b57ea240630b28c37b8"
+    },
+    {
+      "name": "harbor/harbor-redis-0/redis",
+      "source": "docker.io/goharbor/redis-photon@sha256:bee6454b7ba5e2cc584ce79bca9b7d6f2624d6aa07791445bc4bf70b239ac181"
+    },
+    {
+      "name": "harbor/harbor-registry-58bb5867b5-f55qk/registry",
+      "source": "docker.io/goharbor/registry-photon@sha256:81631a18cf1d4773bce9826b4fd721262c5f59ceda1581ae038f0f7f1c873cc1"
+    },
+    {
+      "name": "harbor/harbor-registry-58bb5867b5-f55qk/registryctl",
+      "source": "docker.io/goharbor/harbor-registryctl@sha256:77bb511b0a79ebecfd0d8c2834c17b94e97cfc3b70d21f2cbd936828cc596af2"
+    },
+    {
+      "name": "harbor/harbor-trivy-0/trivy",
+      "source": "docker.io/goharbor/trivy-adapter-photon@sha256:ae02af3a6b5d867b641aa9dedbb2c51cb5f1d20a54b9f1fb5e275c2f4f38e826"
+    },
+    {
+      "name": "identity-system/keycloak-67889b6648-n7fn7/keycloak",
+      "source": "quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54"
+    },
+    {
+      "name": "kms-conformance/vault-7f9b5569dd-82b5q/vault",
+      "source": "docker.io/hashicorp/vault@sha256:268bb80aa9c6d13d65fcfa05c0c268caca068952240a8087291a6ce0b66e3a10"
+    },
+    {
+      "name": "kube-system/cilium-26k29/cilium-agent",
+      "source": "quay.io/cilium/cilium@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"
+    },
+    {
+      "name": "kube-system/cilium-envoy-8pkzv/cilium-envoy",
+      "source": "quay.io/cilium/cilium-envoy@sha256:75b8094c7127736a2ffd2dce3945e0931cb6df21b0372ff661940eca26730b91"
+    },
+    {
+      "name": "kube-system/cilium-operator-55b75bc859-zw57k/cilium-operator",
+      "source": "quay.io/cilium/operator-generic@sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf"
+    },
+    {
+      "name": "kube-system/kube-apiserver-self-service-cicd-cilium-control-plane/kube-apiserver",
+      "source": "docker.io/library/import-2026-08-26@sha256:4fbbef5581e6ed60b96426e3786371b57da07f66e350b4ff2b0077413c2b0444"
+    },
+    {
+      "name": "kube-system/kube-controller-manager-self-service-cicd-cilium-control-plane/kube-controller-manager",
+      "source": "docker.io/library/import-2026-08-26@sha256:dda35f6553455c1dde75aebfbb20759d24b7de776b884eb06415f242f276200c"
+    },
+    {
+      "name": "kube-system/kube-scheduler-self-service-cicd-cilium-control-plane/kube-scheduler",
+      "source": "docker.io/library/import-2026-08-26@sha256:2aa78b45454b3df79d15bf6a57b4f9871f11ce16c8b645109ba2310076d228dd"
+    },
+    {
+      "name": "kyverno/kyverno-admission-controller-85f56b9c89-bskm4/kyverno",
+      "source": "reg.kyverno.io/kyverno/kyverno@sha256:e5bf3b96de9ad9475f5282804859e5c8f09d351d4fb988d1c1ee77f825591742"
+    },
+    {
+      "name": "kyverno/kyverno-background-controller-586699858b-djcjv/controller",
+      "source": "reg.kyverno.io/kyverno/background-controller@sha256:5d9a49b0a36bb25c981bd55e57f360850ea37bfe1b4914e00ec898cc5d27cc4f"
+    },
+    {
+      "name": "kyverno/kyverno-cleanup-controller-56cdd44548-9xqj7/controller",
+      "source": "reg.kyverno.io/kyverno/cleanup-controller@sha256:6f76c84d5305898d4db455515cdb80a8af81fbfe3ac4cecad43e39266ba13944"
+    },
+    {
+      "name": "kyverno/kyverno-reports-controller-8496d8d9cb-fm7rc/controller",
+      "source": "reg.kyverno.io/kyverno/reports-controller@sha256:02013e2288600f514b71f814699441007fcce7aff188f1eb9e8c5da877c6e911"
+    },
+    {
+      "name": "minio/minio-6cdf8d58-pmdhg/minio",
+      "source": "quay.io/minio/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3"
+    },
+    {
+      "name": "monitoring/alertmanager-monitoring-kube-prometheus-alertmanager-0/alertmanager",
+      "source": "quay.io/prometheus/alertmanager@sha256:690c7b525f4367aa91f73e2f91c632206d32e97c6384bdbf2fb7a861b420340d"
+    },
+    {
+      "name": "monitoring/alertmanager-monitoring-kube-prometheus-alertmanager-0/config-reloader",
+      "source": "quay.io/prometheus-operator/prometheus-config-reloader@sha256:428f088fe6fe07ab138bda92113664b04848a1dc408e4d3680a60ecdb55d1a65"
+    },
+    {
+      "name": "monitoring/monitoring-kube-prometheus-operator-77b9798f88-mffw5/kube-prometheus-stack",
+      "source": "quay.io/prometheus-operator/prometheus-operator@sha256:e52bb28fd41c98dd407c7a8cba8bdcfe7eabd7447e250afaf1fe7bb816dedbff"
+    },
+    {
+      "name": "monitoring/monitoring-kube-state-metrics-85bfbc75bb-rd2g8/kube-state-metrics",
+      "source": "registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b"
+    },
+    {
+      "name": "monitoring/monitoring-prometheus-node-exporter-579c4/node-exporter",
+      "source": "quay.io/prometheus/node-exporter@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106"
+    },
+    {
+      "name": "monitoring/prometheus-monitoring-kube-prometheus-prometheus-0/prometheus",
+      "source": "quay.io/prometheus/prometheus@sha256:50c707e96da5ade383cb1707790576480485e93de06aa60ad8802cb5f744bd0a"
+    },
+    {
+      "name": "on-prem-gitops-conformance/guestbook-ui-6d476cf4df-bxml8/guestbook-ui",
+      "source": "gcr.io/google-samples/gb-frontend@sha256:a908df8486ff66f2c4daa0d3d8a2fa09846a1fc8efd65649c0109695c7c5cbff"
+    },
+    {
+      "name": "platform-database/platform-postgres-1/postgres",
+      "source": "ghcr.io/cloudnative-pg/postgresql@sha256:42708a75345b7a48fdd9257b071830783a97fd228529196b6313187a7198e185"
+    },
+    {
+      "name": "platform-system/tenant-network-isolation-conformance-29816297-r7j22/conformance",
+      "source": "docker.io/library/import-2026-09-09@sha256:4957f6af9291bfda1ed9d4acada8f36718d6ffeda043255efb8d2731bf1808f6"
+    },
+    {
+      "name": "vault/vault-0/vault",
+      "source": "docker.io/hashicorp/vault@sha256:5be49781ecf78bfe775c5309c6a4d9f4e9e040b6c885c99eb2b12fb69855e1a2"
+    }
+  ]
 }

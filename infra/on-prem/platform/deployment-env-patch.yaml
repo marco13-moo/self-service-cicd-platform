@@ -31,7 +31,7 @@
     - {name: PREVIEW_VULNERABILITY_IGNORE_UNFIXED, value: "true"}
     - {name: PREVIEW_TARGET_PLATFORM, value: linux/arm64}
     - {name: GITHUB_API_BASE_URL, value: "http://git-api.git-system.svc.cluster.local"}
-    - {name: GITHUB_CLONE_BASE_URL, value: "http://git.git-system.svc.cluster.local"}
+    - {name: GITHUB_CLONE_BASE_URL, value: "git://git.git-system.svc.cluster.local"}
     - name: GITHUB_WEBHOOK_SECRET
       valueFrom: {secretKeyRef: {name: github-app, key: webhook-secret}}
     - name: TENANT_AUTH_TOKENS
