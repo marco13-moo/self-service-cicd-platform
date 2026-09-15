@@ -2,7 +2,6 @@ package executor
 
 import (
 	"fmt"
-	"os"
 
 	argoclient "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
 	"k8s.io/client-go/rest"
@@ -31,17 +30,22 @@ func NewClients() (*Clients, error) {
 }
 
 func buildConfig() (*rest.Config, error) {
+	return kubernetesConfig()
+}
 
-	// Production path
-	if cfg, err := rest.InClusterConfig(); err == nil {
+var inClusterConfig = rest.InClusterConfig
+
+var localKubeConfig = func() (*rest.Config, error) {
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
+}
+
+func kubernetesConfig() (*rest.Config, error) {
+	if cfg, err := inClusterConfig(); err == nil {
 		return cfg, nil
 	}
 
-	// Local development fallback
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		kubeconfig = os.ExpandEnv("$HOME/.kube/config")
-	}
-
-	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+	return localKubeConfig()
 }

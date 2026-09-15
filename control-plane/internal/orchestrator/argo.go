@@ -7,6 +7,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	argov1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	argoclient "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
@@ -33,21 +34,32 @@ type ArgoExecutor struct {
 	client    argoclient.Interface
 }
 
-func NewArgoExecutor(namespace string) *ArgoExecutor {
-	cfg, err := rest.InClusterConfig()
+func NewArgoExecutor(namespace string) (*ArgoExecutor, error) {
+	cfg, err := kubernetesConfig()
 	if err != nil {
-		panic(fmt.Errorf("failed to load in-cluster config: %w", err))
+		return nil, fmt.Errorf("failed to load Kubernetes config: %w", err)
 	}
 
 	client, err := argoclient.NewForConfig(cfg)
 	if err != nil {
-		panic(fmt.Errorf("failed to create argo client: %w", err))
+		return nil, fmt.Errorf("failed to create argo client: %w", err)
 	}
 
 	return &ArgoExecutor{
 		namespace: namespace,
 		client:    client,
+	}, nil
+}
+
+func kubernetesConfig() (*rest.Config, error) {
+	if cfg, err := rest.InClusterConfig(); err == nil {
+		return cfg, nil
 	}
+
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
 }
 
 // ---- public submission methods ----

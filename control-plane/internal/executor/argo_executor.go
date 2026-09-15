@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
 
 	argov1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	argoclient "github.com/argoproj/argo-workflows/v3/pkg/client/clientset/versioned"
@@ -17,9 +16,9 @@ type ArgoExecutor struct {
 }
 
 func NewArgoExecutor(namespace string) (*ArgoExecutor, error) {
-	cfg, err := rest.InClusterConfig()
+	cfg, err := kubernetesConfig()
 	if err != nil {
-		return nil, fmt.Errorf("load in-cluster kube config: %w", err)
+		return nil, fmt.Errorf("load Kubernetes config: %w", err)
 	}
 
 	client, err := argoclient.NewForConfig(cfg)
