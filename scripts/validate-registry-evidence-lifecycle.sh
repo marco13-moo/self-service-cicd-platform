@@ -36,7 +36,7 @@ cleanup() {
   kubectl -n argo delete job registry-evidence-verify registry-evidence-verify-attestation --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete clusterpolicy registry-evidence-recovery-conformance --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete namespace evidence-recovery-conformance --ignore-not-found >/dev/null 2>&1 || true
-  for file in ${temporary_files[*]-}; do rm -f "$file"; done
+  for file in "${temporary_files[@]}"; do rm -f "$file"; done
   if [ "${KEEP_EVIDENCE_RECOVERY_REGISTRY:-false}" != true ]; then
     docker rm -f "$backup_container" >/dev/null 2>&1 || true
     docker rm -f "$recovery_container" >/dev/null 2>&1 || true

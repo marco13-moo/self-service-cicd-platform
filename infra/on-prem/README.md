@@ -9,6 +9,10 @@ local storage, but changing a component or version invalidates certification.
 No credential is committed. The bootstrap generates ephemeral local secrets;
 persistent installations must source them from their secret-management system.
 The profile uses an internal CA and RFC2136 DNS boundaries, so no public domain
-or SaaS provider is required. The Argo drift test currently fetches the
-upstream Argo CD guestbook fixture from GitHub; mirror that repository into the
-site Git service when certifying an air-gapped installation.
+or SaaS provider is required. ADR 0023's installer materializes the exact
+candidate workspace and its conformance fixture into the in-cluster, read-only
+Git service; Argo CD and preview acceptance therefore remain site-local.
+
+Use [`docs/guides/on-prem-usage-guide.md`](../../docs/guides/on-prem-usage-guide.md)
+for the end-to-end build, mirror, render, install, acceptance, upgrade, rollback,
+and recovery procedure.

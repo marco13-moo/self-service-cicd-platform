@@ -1,0 +1,40 @@
+name: Repository quality gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: control-plane/go.mod
+          cache-dependency-path: |
+            control-plane/go.sum
+            go.work.sum
+      - name: Test control plane
+        run: go test ./control-plane/...
+      - name: Validate shell entrypoints
+        run: |
+          bash -n scripts/*.sh
+          shellcheck --severity=warning scripts/*.sh
+      - name: Render Kubernetes manifests
+        run: kubectl kustomize . >/tmp/platform.yaml
+      - name: Enforce immutable air-gap inventory
+        run: |
+          jq -e '
+            .schema == "platform.airgap-images/v1"
+            and (.images | length > 0)
+            and all(.images[]; .source | test("@sha256:[a-f0-9]{64}$"))
+          ' config/airgap/on-prem-images.lock.json >/dev/null

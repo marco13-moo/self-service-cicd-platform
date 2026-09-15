@@ -1,0 +1,11 @@
+apiVersion: platform.service/v1
+kind: Service
+metadata:
+  name: airgap-fixture
+spec:
+  owner: platform-conformance
+  repository: https://github.com/acme/fixture
+  environment: preview
+  deployment:
+    containerPort: 8080
+    dockerfile: Dockerfile

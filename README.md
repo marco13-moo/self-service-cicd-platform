@@ -4,9 +4,44 @@ An API-driven control plane for registering services and orchestrating ephemeral
 environments through Kubernetes and Argo Workflows. The control plane expresses
 validated intent; Argo remains the authoritative execution and lifecycle engine.
 
+The reference deployment is sovereign and on-premises: Kubernetes, Cilium,
+Harbor, Vault, CloudNativePG, Keycloak, cert-manager, external-dns, Argo CD,
+Argo Workflows, MinIO, Kyverno, and Prometheus are installed under explicit,
+version-pinned contracts. Runtime images are digest-pinned and mirrored into the
+site registry; GitOps reconciliation uses a site-local Git endpoint.
+
+## Start here
+
+| Goal | Documentation |
+| --- | --- |
+| Understand the system | [`docs/architecture.md`](docs/architecture.md) |
+| Install and operate on premises | [`docs/guides/on-prem-usage-guide.md`](docs/guides/on-prem-usage-guide.md) |
+| Review the installation decision | [`ADR 0023`](docs/adr/0023-on-prem-platform-installation-and-day-2-operations.md) |
+| Execute incident and recovery procedures | [`on-prem-platform-operations.md`](docs/runbooks/on-prem-platform-operations.md) |
+| Register and diagnose services | [`config/service.schema.json`](config/service.schema.json) and [`examples/services`](examples/services) |
+| Inspect certification evidence | [`docs/evidence`](docs/evidence) |
+| Review the completion boundary | [`docs/project-completion.md`](docs/project-completion.md) |
+
+For a local source build:
+
+```bash
+cd control-plane
+go test ./...
+go run ./cmd/control-plane
+```
+
+For the complete on-premises lifecycle, use the usage guide. Installation is
+not considered accepted until `validate-on-prem-platform.sh` emits a signed,
+passing `platform.installation-evidence/v1` bill of materials.
+
 ## Current status
 
-Phases 1–7 are implemented:
+The planned platform capabilities through ADR 0023 are implemented. The
+repository is in operational-maintenance status: future work is provider
+recertification, dependency maintenance, and site-specific deployment rather
+than unfinished product scope.
+
+Implemented capabilities include:
 
 - Go control-plane service with explicit API, orchestration, execution, and provider boundaries
 - Service registration with PostgreSQL-authoritative production state

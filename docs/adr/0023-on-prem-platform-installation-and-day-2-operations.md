@@ -87,7 +87,8 @@ private keys, bearer tokens, generated secret directories, and raw logs may not.
 ## Rollout and rollback
 
 1. Verify and mirror the certified release and image lock into site Harbor.
-2. Publish the rendered overlay and local fixture to the site Git endpoint.
+2. Materialize the candidate workspace and fixture into the site-local Git
+   endpoint with `install-on-prem-platform.sh`.
 3. Apply the Argo CD bootstrap `Application` and wait for health and sync.
 4. Run the complete acceptance suite and sign its installation BOM.
 5. Promote only the accepted digest. On failure, Argo CD and the acceptance
