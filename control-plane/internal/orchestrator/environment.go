@@ -8,6 +8,7 @@ import (
 	"time"
 
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/policy"
 )
 
 //
@@ -17,14 +18,15 @@ import (
 // EnvironmentSpec defines the desired environment.
 // This remains intent-only.
 type EnvironmentSpec struct {
-	TenantID   string            `json:"tenant_id"`
-	Name       string            `json:"name"`
-	Namespace  string            `json:"namespace"`
-	Service    string            `json:"service"`
-	TTL        time.Duration     `json:"ttl"`
-	ExpiresAt  time.Time         `json:"expires_at"`
-	Parameters map[string]string `json:"parameters,omitempty"`
-	Source     *SourceRevision   `json:"source,omitempty"`
+	TenantID   string                   `json:"tenant_id"`
+	Name       string                   `json:"name"`
+	Namespace  string                   `json:"namespace"`
+	Service    string                   `json:"service"`
+	TTL        time.Duration            `json:"ttl"`
+	ExpiresAt  time.Time                `json:"expires_at"`
+	Parameters map[string]string        `json:"parameters,omitempty"`
+	Admission  policy.AdmissionDecision `json:"admission"`
+	Source     *SourceRevision          `json:"source,omitempty"`
 }
 
 // NamespaceForTenant maps logical tenant/environment identity to a stable DNS

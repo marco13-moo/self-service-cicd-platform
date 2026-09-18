@@ -1,6 +1,7 @@
 package api
 
 import "github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/catalog"
+import "github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/policy"
 
 // CreateServiceRequest is the external API contract used by clients
 // registering a service with the control plane.
@@ -39,6 +40,7 @@ type ServiceDeploymentRequest struct {
 	ContainerPort int                 `json:"container_port,omitempty"`
 	Dockerfile    string              `json:"dockerfile,omitempty"`
 	Egress        []ServiceEgressRule `json:"egress,omitempty"`
+	Policy        policy.Declaration  `json:"policy,omitempty"`
 }
 
 type ServiceEgressRule struct {

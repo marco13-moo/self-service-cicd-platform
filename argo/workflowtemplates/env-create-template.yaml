@@ -14,6 +14,15 @@ spec:
       - name: tenant_id
       - name: tenant_service_account
       - name: expires_at
+      - name: policy_digest
+      - name: residency
+      - name: attestation_profile
+      - name: confidential
+      - name: identity_provider
+      - name: identity_audience
+      - name: credential_ttl_seconds
+      - name: encryption_key
+      - name: network_isolation
   templates:
     - name: create-namespace
       script:
@@ -40,6 +49,14 @@ spec:
             service={{workflow.parameters.service}} \
             managed-by=self-service-cicd \
             platform.preview-signature-policy=enforced \
+            platform.policy-digest='{{workflow.parameters.policy_digest}}' \
+            platform.data-residency='{{workflow.parameters.residency}}' \
+            platform.confidential='{{workflow.parameters.confidential}}' \
+            platform.attestation-profile='{{workflow.parameters.attestation_profile}}' \
+            platform.identity-provider='{{workflow.parameters.identity_provider}}' \
+            platform.identity-audience='{{workflow.parameters.identity_audience}}' \
+            platform.encryption-key='{{workflow.parameters.encryption_key}}' \
+            platform.network-isolation='{{workflow.parameters.network_isolation}}' \
             pod-security.kubernetes.io/enforce=restricted \
             pod-security.kubernetes.io/enforce-version=latest \
             pod-security.kubernetes.io/audit=restricted \
@@ -170,6 +187,21 @@ spec:
                               publicKeys: "k8s://argo/$public_key_secret"
                               rekor:
                                 ignoreTlog: true
+              - name: require-attestation-for-confidential-workloads
+                match:
+                  any:
+                    - resources:
+                        kinds: [Pod]
+                        selector:
+                          matchLabels:
+                            platform.confidential: "true"
+                validate:
+                  failureAction: Enforce
+                  message: confidential workloads must declare the admitted attestation profile
+                  pattern:
+                    metadata:
+                      labels:
+                        platform.attestation-profile: "?*"
           EOF
           kubectl -n "$namespace" apply -f - <<EOF
           apiVersion: networking.k8s.io/v1

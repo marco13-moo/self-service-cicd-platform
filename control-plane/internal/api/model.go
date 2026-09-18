@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/catalog"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/policy"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
 
@@ -38,11 +39,18 @@ type ServiceDeployment struct {
 	ContainerPort int                 `json:"container_port"`
 	Dockerfile    string              `json:"dockerfile"`
 	Egress        []ServiceEgressRule `json:"egress,omitempty"`
+	Policy        policy.Declaration  `json:"policy,omitempty"`
 }
 
 // NewService constructs a new immutable Service from an API contract.
 func NewService(req CreateServiceRequest, projectType string, repository scm.RepositoryIdentity) Service {
 	deployment := ServiceDeployment{ContainerPort: 8080, Dockerfile: "Dockerfile"}
+	deployment.Policy = policy.Declaration{
+		AllowedResidencies: []string{"unspecified"},
+		Residency:          "unspecified",
+		IdentityProvider:   "platform",
+		IdentityAudience:   "tenant-workload",
+	}
 	if req.Deployment != nil {
 		if req.Deployment.ContainerPort != 0 {
 			deployment.ContainerPort = req.Deployment.ContainerPort
@@ -51,6 +59,7 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 			deployment.Dockerfile = req.Deployment.Dockerfile
 		}
 		deployment.Egress = append([]ServiceEgressRule(nil), req.Deployment.Egress...)
+		deployment.Policy = req.Deployment.Policy
 	}
 	service := Service{
 		TenantID:    DefaultTenantID,

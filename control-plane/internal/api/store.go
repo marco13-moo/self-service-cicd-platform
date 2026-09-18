@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -260,6 +261,8 @@ type AuditEvent struct {
 	ResourceName  string         `json:"resource_name"`
 	Outcome       string         `json:"outcome"`
 	Metadata      map[string]any `json:"metadata,omitempty"`
+	PreviousHash  string         `json:"previous_hash,omitempty"`
+	EventHash     string         `json:"event_hash,omitempty"`
 }
 
 func (s *ServiceStore) AppendAuditEvent(ctx context.Context, event AuditEvent) error {
@@ -281,7 +284,17 @@ func (s *ServiceStore) AppendAuditEvent(ctx context.Context, event AuditEvent) e
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO audit_events(id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, event.ID, event.TenantID, event.OccurredAt, event.CorrelationID, event.Actor, event.EventType, event.ResourceType, event.ResourceName, event.Outcome, metadata)
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT event_hash FROM audit_events WHERE tenant_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1),'')`, event.TenantID).Scan(&event.PreviousHash); err != nil {
+		return err
+	}
+	hashInput, _ := json.Marshal(struct {
+		ID, TenantID, CorrelationID, Actor, EventType, ResourceType, ResourceName, Outcome, PreviousHash string
+		OccurredAt                                                                                       time.Time
+		Metadata                                                                                         json.RawMessage
+	}{event.ID.String(), string(event.TenantID), event.CorrelationID, event.Actor, event.EventType, event.ResourceType, event.ResourceName, event.Outcome, event.PreviousHash, event.OccurredAt, metadata})
+	sum := sha256.Sum256(hashInput)
+	event.EventHash = fmt.Sprintf("sha256:%x", sum[:])
+	_, err = tx.ExecContext(ctx, `INSERT INTO audit_events(id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata,previous_hash,event_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, event.ID, event.TenantID, event.OccurredAt, event.CorrelationID, event.Actor, event.EventType, event.ResourceType, event.ResourceName, event.Outcome, metadata, event.PreviousHash, event.EventHash)
 	if err != nil {
 		return err
 	}
@@ -301,7 +314,7 @@ func (s *ServiceStore) ListAuditEvents(ctx context.Context, limit int) ([]AuditE
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata FROM audit_events ORDER BY occurred_at DESC,id DESC LIMIT $1`, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT id,tenant_id,occurred_at,correlation_id,actor,event_type,resource_type,resource_name,outcome,metadata,previous_hash,event_hash FROM audit_events ORDER BY occurred_at DESC,id DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +323,7 @@ func (s *ServiceStore) ListAuditEvents(ctx context.Context, limit int) ([]AuditE
 	for rows.Next() {
 		var event AuditEvent
 		var metadata []byte
-		if err := rows.Scan(&event.ID, &event.TenantID, &event.OccurredAt, &event.CorrelationID, &event.Actor, &event.EventType, &event.ResourceType, &event.ResourceName, &event.Outcome, &metadata); err != nil {
+		if err := rows.Scan(&event.ID, &event.TenantID, &event.OccurredAt, &event.CorrelationID, &event.Actor, &event.EventType, &event.ResourceType, &event.ResourceName, &event.Outcome, &metadata, &event.PreviousHash, &event.EventHash); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(metadata, &event.Metadata); err != nil {

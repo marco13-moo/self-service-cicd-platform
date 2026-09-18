@@ -131,6 +131,11 @@ DROP TRIGGER IF EXISTS audit_events_immutable ON audit_events;
 CREATE TRIGGER audit_events_immutable BEFORE UPDATE OR DELETE ON audit_events
 FOR EACH ROW EXECUTE FUNCTION reject_audit_event_mutation();
 `},
+	{version: 6, sql: `
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS previous_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS audit_events_tenant_chain_idx ON audit_events(tenant_id,occurred_at DESC,id DESC);
+`},
 }
 
 // migrateDatabase serializes schema evolution across concurrently starting

@@ -51,6 +51,15 @@ func (e *ArgoEnvironmentOrchestrator) Create(
 		"tenant_service_account": ServiceAccountForTenant(spec.TenantID),
 		"service":                spec.Service,
 		"expires_at":             expiresAt,
+		"policy_digest":          spec.Admission.PolicyDigest,
+		"residency":              spec.Admission.Residency,
+		"attestation_profile":    spec.Admission.AttestationProfile,
+		"confidential":           fmt.Sprintf("%t", spec.Admission.Confidential),
+		"identity_provider":      spec.Admission.IdentityProvider,
+		"identity_audience":      spec.Admission.IdentityAudience,
+		"credential_ttl_seconds": fmt.Sprintf("%d", spec.Admission.CredentialTTL),
+		"encryption_key":         spec.Admission.EncryptionKey,
+		"network_isolation":      spec.Admission.NetworkIsolation,
 	}
 
 	//-----------------------------------------
@@ -205,6 +214,15 @@ func (e *ArgoEnvironmentOrchestrator) Deploy(ctx context.Context, env *Environme
 		"egress_policy_b64":         deployment.EgressPolicy,
 		"preview_gateway_namespace": "preview-gateway",
 		"preview_gateway_name":      "platform-preview",
+		"policy_digest":             env.Spec.Admission.PolicyDigest,
+		"residency":                 env.Spec.Admission.Residency,
+		"attestation_profile":       env.Spec.Admission.AttestationProfile,
+		"confidential":              fmt.Sprintf("%t", env.Spec.Admission.Confidential),
+		"identity_provider":         env.Spec.Admission.IdentityProvider,
+		"identity_audience":         env.Spec.Admission.IdentityAudience,
+		"credential_ttl_seconds":    fmt.Sprintf("%d", env.Spec.Admission.CredentialTTL),
+		"encryption_key":            env.Spec.Admission.EncryptionKey,
+		"network_isolation":         env.Spec.Admission.NetworkIsolation,
 	}
 	labels := NewLabelBuilder(WorkflowTypeEnvDeploy, env.Spec.Service).WithTenant(env.Spec.TenantID).WithEnvironment(env.Spec.Name).WithTrigger(TriggerPR).WithTemplate("env-deploy-template").Build()
 	workflow, err := e.exec.SubmitFromTemplate(ctx, "env-deploy-template", "env-deploy-", params, labels)

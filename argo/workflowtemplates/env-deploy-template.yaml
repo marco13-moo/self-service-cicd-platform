@@ -45,6 +45,15 @@ spec:
         value: preview-gateway
       - name: preview_gateway_name
         value: platform-preview
+      - name: policy_digest
+      - name: residency
+      - name: attestation_profile
+      - name: confidential
+      - name: identity_provider
+      - name: identity_audience
+      - name: credential_ttl_seconds
+      - name: encryption_key
+      - name: network_isolation
   volumes:
     - name: buildkit-state
       emptyDir: {}
@@ -467,6 +476,13 @@ spec:
               platform.service: '{{workflow.parameters.service}}'
               platform.environment: '{{workflow.parameters.environment_name}}'
               platform.revision: '{{workflow.parameters.commit_sha}}'
+              platform.policy-digest: '{{workflow.parameters.policy_digest}}'
+              platform.data-residency: '{{workflow.parameters.residency}}'
+              platform.confidential: '{{workflow.parameters.confidential}}'
+              platform.attestation-profile: '{{workflow.parameters.attestation_profile}}'
+              platform.identity-provider: '{{workflow.parameters.identity_provider}}'
+              platform.identity-audience: '{{workflow.parameters.identity_audience}}'
+              platform.encryption-key: '{{workflow.parameters.encryption_key}}'
               platform.project-type: '{{workflow.parameters.project_type}}'
           spec:
             replicas: 1
@@ -481,9 +497,17 @@ spec:
                   platform.service: '{{workflow.parameters.service}}'
                   platform.environment: '{{workflow.parameters.environment_name}}'
                   platform.revision: '{{workflow.parameters.commit_sha}}'
+                  platform.policy-digest: '{{workflow.parameters.policy_digest}}'
+                  platform.data-residency: '{{workflow.parameters.residency}}'
+                  platform.confidential: '{{workflow.parameters.confidential}}'
+                  platform.attestation-profile: '{{workflow.parameters.attestation_profile}}'
               spec:
                 serviceAccountName: preview-runtime
                 automountServiceAccountToken: false
+                nodeSelector:
+                  platform.data-residency: '{{workflow.parameters.residency}}'
+                  platform.confidential-compute: '{{workflow.parameters.confidential}}'
+                  platform.attestation-profile: '{{workflow.parameters.attestation_profile}}'
                 securityContext:
                   runAsNonRoot: true
                   seccompProfile:

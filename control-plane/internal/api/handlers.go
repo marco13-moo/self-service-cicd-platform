@@ -16,6 +16,7 @@ import (
 
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/catalog"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/policy"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
@@ -381,8 +382,15 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store := h.scopedStore(r)
-	if _, err := store.Get(req.Service); err != nil {
+	service, err := store.Get(req.Service)
+	if err != nil {
 		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
+	admission, err := policy.Verify(string(tenantFromRequest(r)), service.Deployment.Policy)
+	if err != nil {
+		h.audit(r, "environment.admission", "environment", req.Name, "denied", map[string]any{"reason": err.Error()})
+		http.Error(w, "environment denied by tenant policy: "+err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -394,6 +402,7 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		Namespace: orchestrator.NamespaceForTenant(string(tenantFromRequest(r)), req.Name),
 		Service:   req.Service,
 		TTL:       ttl,
+		Admission: admission,
 	})
 	if err != nil {
 		h.logger.Error("failed to create environment", zap.Error(err))
@@ -410,7 +419,10 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "environment submitted but state persistence failed", http.StatusInternalServerError)
 		return
 	}
-	h.audit(r, "environment.created", "environment", env.Spec.Name, "succeeded", map[string]any{"namespace": env.Spec.Namespace})
+	h.audit(r, "environment.created", "environment", env.Spec.Name, "succeeded", map[string]any{
+		"namespace": env.Spec.Namespace, "policy_digest": admission.PolicyDigest, "residency": admission.Residency,
+		"attestation_profile": admission.AttestationProfile, "encryption_key": admission.EncryptionKey,
+	})
 
 	h.logger.Info("environment creation accepted")
 	writeJSON(w, http.StatusAccepted, env)
