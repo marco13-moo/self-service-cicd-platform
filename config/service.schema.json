@@ -15,6 +15,17 @@
       "properties": {
         "owner": {"type": "string", "minLength": 1},
         "repository": {"type": "string", "format": "uri", "pattern": "^https://(github\\.com|bitbucket\\.org)/"},
+        "dependencies": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}},
+        "slo": {"type": "object", "additionalProperties": false, "properties": {
+          "availability": {"type": "string", "minLength": 1},
+          "latency": {"type": "string", "minLength": 1}
+        }},
+        "compliance": {"type": "object", "additionalProperties": false, "properties": {
+          "dataClass": {"type": "string", "minLength": 1},
+          "controls": {"type": "array", "items": {"type": "string"}},
+          "attestation": {"type": "string", "minLength": 1}
+        }},
+        "lifecycle": {"enum": ["active", "paused", "retired"]},
         "environment": {"type": "string"},
         "deployment": {"type": "object", "additionalProperties": false, "properties": {
           "containerPort": {"type": "integer", "minimum": 1, "maximum": 65535},

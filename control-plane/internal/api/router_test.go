@@ -121,11 +121,24 @@ func TestGoldenPathCatalogAndDiagnostics(t *testing.T) {
 	for _, endpoint := range []string{"/api/v1/catalog/services", "/api/v1/services/orders/diagnostics"} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, endpoint, nil))
-		if response.Code != http.StatusOK {
+		if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("orders")) {
 			t.Fatalf("GET %s returned %d: %s", endpoint, response.Code, response.Body.String())
 		}
-		if !bytes.Contains(response.Body.Bytes(), []byte("orders")) {
-			t.Fatalf("GET %s omitted tenant service", endpoint)
-		}
+	}
+}
+
+func TestVersionedServiceDeclarationAndConflict(t *testing.T) {
+	store := NewServiceStore()
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, nil, zap.NewNop())
+	body := `{"apiVersion":"platform.service/v1","kind":"Service","metadata":{"name":"orders"},"spec":{"owner":"commerce","repository":"https://github.com/acme/orders","dependencies":["payments"],"slo":{"availability":"99.9%"},"compliance":{"dataClass":"internal"},"runtime":{"environment":"preview","containerPort":8080},"lifecycle":"active"}}`
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/api/v1/services", bytes.NewBufferString(body)))
+	if first.Code != http.StatusCreated || !bytes.Contains(first.Body.Bytes(), []byte(`"desired_state":"active"`)) {
+		t.Fatalf("versioned registration returned %d: %s", first.Code, first.Body.String())
+	}
+	second := httptest.NewRecorder()
+	router.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/api/v1/services", bytes.NewBufferString(body)))
+	if second.Code != http.StatusConflict {
+		t.Fatalf("duplicate registration returned %d, want %d", second.Code, http.StatusConflict)
 	}
 }

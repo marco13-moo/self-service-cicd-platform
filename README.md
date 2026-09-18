@@ -14,6 +14,7 @@ site registry; GitOps reconciliation uses a site-local Git endpoint.
 
 | Goal | Documentation |
 | --- | --- |
+| Understand the platform product boundary and roadmap | [`docs/platform-product-architecture.md`](docs/platform-product-architecture.md) |
 | Understand the system | [`docs/architecture.md`](docs/architecture.md) |
 | Install and operate on premises | [`docs/guides/on-prem-usage-guide.md`](docs/guides/on-prem-usage-guide.md) |
 | Review the installation decision | [`ADR 0023`](docs/adr/0023-on-prem-platform-installation-and-day-2-operations.md) |
@@ -222,6 +223,11 @@ Architectural decisions and trust boundaries are documented in
 | `GET` | `/api/v1/services` | List registered services |
 | `GET` | `/api/v1/catalog/services` | Tenant-scoped developer catalog |
 | `GET` | `/api/v1/services/{name}/diagnostics` | Actionable, secret-free service diagnostics |
+
+Service registration accepts the versioned `platform.service/v1` declaration
+shape shown in [`examples/services/platform-service-v1.yaml`](examples/services/platform-service-v1.yaml).
+Responses include tenant-scoped desired and observed status; the legacy flat
+registration fields remain accepted during migration.
 | `POST` | `/api/v1/environments` | Submit create and TTL workflows |
 | `GET` | `/api/v1/environments/{name}` | Retrieve intent and live workflow state |
 | `DELETE` | `/api/v1/environments/{name}` | Submit and retain a destroy workflow reference |

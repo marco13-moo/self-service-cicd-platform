@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/util/validation"
 
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/catalog"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/providers"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
@@ -117,6 +118,33 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 		return
 	}
+	req.Normalize()
+	if req.APIVersion != "" || req.Kind != "" {
+		if req.APIVersion != catalog.APIVersion || req.Kind != catalog.Kind {
+			http.Error(w, "unsupported service contract", http.StatusBadRequest)
+			return
+		}
+	}
+	if req.Spec != nil {
+		declaration := catalog.Declaration{
+			APIVersion: req.APIVersion,
+			Kind:       req.Kind,
+			Metadata:   catalog.Metadata{Name: req.Name},
+			Spec:       *req.Spec,
+		}
+		if err := declaration.Validate(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if strings.TrimSpace(req.RepoURL) == "" {
+		http.Error(w, "repo_url is required", http.StatusBadRequest)
+		return
+	}
+	if (req.APIVersion != "" || req.Kind != "") && strings.TrimSpace(req.Owner) == "" {
+		http.Error(w, "spec.owner is required for platform.service/v1", http.StatusBadRequest)
+		return
+	}
 	if problems := validation.IsDNS1123Label(req.Name); len(problems) != 0 {
 		http.Error(w, "service name must be a Kubernetes DNS label", http.StatusBadRequest)
 		return
@@ -163,6 +191,10 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 	service := NewService(req, projectType, repository)
 	service.TenantID = tenantFromRequest(r)
 	if err := h.scopedStore(r).Put(service); err != nil {
+		if errors.Is(err, ErrVersionConflict) {
+			http.Error(w, "service already exists for this tenant", http.StatusConflict)
+			return
+		}
 		h.logger.Error("failed to persist service", zap.Error(err))
 		http.Error(w, "failed to persist service", http.StatusInternalServerError)
 		return
@@ -217,6 +249,7 @@ type CatalogService struct {
 	ProjectType         string                 `json:"project_type"`
 	Repository          scm.RepositoryIdentity `json:"repository"`
 	PreviewEnvironments int                    `json:"preview_environments"`
+	Status              ServiceStatus          `json:"status"`
 }
 
 func (h *Handlers) ListCatalogServices(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +262,7 @@ func (h *Handlers) ListCatalogServices(w http.ResponseWriter, r *http.Request) {
 	for _, service := range store.List() {
 		result = append(result, CatalogService{Name: service.Name, Owner: service.Owner,
 			ProjectType: service.ProjectType, Repository: service.Repository,
-			PreviewEnvironments: counts[service.Name]})
+			PreviewEnvironments: counts[service.Name], Status: service.Status})
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -243,6 +276,7 @@ type DiagnosticCheck struct {
 
 type ServiceDiagnostics struct {
 	Service string            `json:"service"`
+	Status  ServiceStatus     `json:"status"`
 	Checks  []DiagnosticCheck `json:"checks"`
 }
 
@@ -268,7 +302,23 @@ func (h *Handlers) GetServiceDiagnostics(w http.ResponseWriter, r *http.Request)
 			checks = append(checks, DiagnosticCheck{Code: "preview.deployment", Status: "fail", Summary: "a preview deployment failed", Remediation: "inspect the environment logs endpoint and retry after correcting the repository build"})
 		}
 	}
-	writeJSON(w, http.StatusOK, ServiceDiagnostics{Service: service.Name, Checks: checks})
+	status := service.Status
+	for _, environment := range h.scopedStore(r).ListEnvironments() {
+		if environment.Spec.Service != service.Name || environment.Spec.Source == nil {
+			continue
+		}
+		if environment.Spec.Source.Generation > status.ObservedGeneration {
+			status.ObservedGeneration = environment.Spec.Source.Generation
+		}
+		if environment.Spec.Source.DeploymentPhase == "Failed" {
+			status.ObservedState = "degraded"
+			status.Message = "a preview deployment failed"
+		} else if environment.Spec.Source.DeploymentPhase == "Succeeded" && status.ObservedState == "pending" {
+			status.ObservedState = "ready"
+			status.Message = "observed deployment is healthy"
+		}
+	}
+	writeJSON(w, http.StatusOK, ServiceDiagnostics{Service: service.Name, Status: status, Checks: checks})
 }
 
 // --- Environment endpoints (Phase 5) ---
