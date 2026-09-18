@@ -30,6 +30,95 @@ go test ./...
 go run ./cmd/control-plane
 ```
 
+### Local Kind quickstart
+
+The control plane requires a reachable Kubernetes API and Argo Workflows for
+readiness. The following commands create the repository's local Kind cluster,
+install Argo, and run the control plane with file-backed state. Run commands
+from separate terminals where indicated.
+
+1. From the repository root, create the local cluster:
+
+  ```bash
+  ./scripts/bootstrap-kind-cilium.sh
+  ```
+
+2. Install the pinned Argo Workflows chart and apply the workflow templates:
+
+  ```bash
+  helm repo add argo https://argoproj.github.io/argo-helm
+  helm repo update
+  helm upgrade --install argo-workflows argo/argo-workflows \
+    --version 2.0.5 \
+    --namespace argo \
+    --create-namespace \
+    --set crds.full=false \
+    --set server.enabled=false \
+    --wait \
+    --timeout 10m
+  kubectl apply -n argo -f argo/workflowtemplates/
+  ```
+
+3. In terminal 1, start the control plane. Set `GITHUB_TOKEN` in the shell
+  first when registering a GitHub repository; its value is intentionally not
+  shown here.
+
+  ```bash
+  cd control-plane
+  mkdir -p .local
+  export GITHUB_TOKEN="your-github-token"
+  LOCAL_TOKEN="replace-with-a-local-development-token"
+  TENANT_AUTH_TOKENS="{\"$LOCAL_TOKEN\":{\"subject\":\"local-user\",\"tenant_id\":\"default\",\"role\":\"admin\",\"platform_admin\":true}}" \
+  STATE_PATH="$PWD/.local/state.json" \
+  go run ./cmd/control-plane
+  ```
+
+4. In terminal 2, configure the local API endpoint and verify both probes:
+
+  ```bash
+  cd control-plane
+  export PLATFORM_ENDPOINT=http://localhost:8080
+  export PLATFORM_TOKEN="replace-with-a-local-development-token"
+  curl -i "$PLATFORM_ENDPOINT/healthz"
+  curl -i "$PLATFORM_ENDPOINT/readyz"
+  ```
+
+  Both endpoints should return `200 OK`. Keep terminal 1 running.
+
+5. Create a local service declaration. Copy
+  `examples/services/go-api.yaml` to `.local/my-service.yaml`, then replace
+  its example repository with a real accessible GitHub or Bitbucket
+  repository. The repository must expose a recognized root manifest such as
+  `go.mod`, `package.json`, or `pyproject.toml`.
+
+  ```bash
+  mkdir -p .local
+  cp examples/services/go-api.yaml .local/my-service.yaml
+  ```
+
+6. Register and inspect the service from terminal 2:
+
+  ```bash
+  go run ./cmd/platformctl \
+    -endpoint "$PLATFORM_ENDPOINT" \
+    -token "$PLATFORM_TOKEN" \
+    -file ../.local/my-service.yaml \
+    apply
+  go run ./cmd/platformctl \
+    -endpoint "$PLATFORM_ENDPOINT" \
+    -token "$PLATFORM_TOKEN" \
+    catalog
+  go run ./cmd/platformctl \
+    -endpoint "$PLATFORM_ENDPOINT" \
+    -token "$PLATFORM_TOKEN" \
+    diagnose orders-api
+  ```
+
+The local `TENANT_AUTH_TOKENS` and `PLATFORM_TOKEN` values above are
+development-only placeholders and must match. Never commit credentials or paste
+token values into the repository. If the Kind cluster is recreated, restart the
+control plane so it loads the new kubeconfig endpoint.
+
 For the complete on-premises lifecycle, use the usage guide. Installation is
 not considered accepted until `validate-on-prem-platform.sh` emits a signed,
 passing `platform.installation-evidence/v1` bill of materials.
