@@ -210,6 +210,10 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "service already exists for this tenant", http.StatusConflict)
 			return
 		}
+		if errors.Is(err, ErrTenantQuotaExceeded) {
+			http.Error(w, "tenant service quota exceeded", http.StatusTooManyRequests)
+			return
+		}
 		h.logger.Error("failed to persist service", zap.Error(err))
 		http.Error(w, "failed to persist service", http.StatusInternalServerError)
 		return
@@ -437,6 +441,10 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("environment submitted but reference persistence failed", zap.Error(err))
 		if errors.Is(err, ErrVersionConflict) {
 			http.Error(w, "environment changed concurrently; retry with fresh state", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, ErrTenantQuotaExceeded) {
+			http.Error(w, "tenant environment quota exceeded", http.StatusTooManyRequests)
 			return
 		}
 		http.Error(w, "environment submitted but state persistence failed", http.StatusInternalServerError)

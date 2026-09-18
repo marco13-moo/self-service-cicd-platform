@@ -17,6 +17,17 @@ func (s *ServiceStore) putServicePostgres(service Service) error {
 		return err
 	}
 	defer tx.Rollback()
+	var serviceCount, serviceQuota int
+	if err := tx.QueryRow(`SELECT (SELECT count(*) FROM services WHERE tenant_id=$1), service_quota FROM tenants WHERE id=$1 FOR UPDATE`, s.tenantID).Scan(&serviceCount, &serviceQuota); err != nil {
+		return fmt.Errorf("read service quota: %w", err)
+	}
+	var existing bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM services WHERE tenant_id=$1 AND name=$2)`, s.tenantID, service.Name).Scan(&existing); err != nil {
+		return fmt.Errorf("check service identity: %w", err)
+	}
+	if !existing && serviceCount >= serviceQuota {
+		return ErrTenantQuotaExceeded
+	}
 	service.TenantID = normalizeTenantID(s.tenantID)
 	if service.Version == 0 {
 		service.Version = 1
@@ -188,6 +199,13 @@ func (s *ServiceStore) putEnvironmentPostgres(env *orchestrator.Environment) err
 	}
 	var result sql.Result
 	if env.Version == 0 {
+		var environmentCount, environmentQuota int
+		if err := tx.QueryRow(`SELECT (SELECT count(*) FROM environments WHERE tenant_id=$1), environment_quota FROM tenants WHERE id=$1 FOR UPDATE`, s.tenantID).Scan(&environmentCount, &environmentQuota); err != nil {
+			return fmt.Errorf("read environment quota: %w", err)
+		}
+		if environmentCount >= environmentQuota {
+			return ErrTenantQuotaExceeded
+		}
 		result, err = tx.Exec(`INSERT INTO environments(tenant_id,name,document,version) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING`, s.tenantID, env.Spec.Name, document)
 	} else {
 		result, err = tx.Exec(`UPDATE environments SET document=$1,version=$2,updated_at=now() WHERE tenant_id=$3 AND name=$4 AND version=$5`, document, next.Version, s.tenantID, env.Spec.Name, env.Version)
