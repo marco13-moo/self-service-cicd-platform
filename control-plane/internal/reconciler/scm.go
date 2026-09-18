@@ -14,6 +14,7 @@ import (
 	wf "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/api"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/orchestrator"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/policy"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/telemetry"
 	"go.uber.org/zap"
@@ -197,12 +198,16 @@ func (r *SCMCommandReconciler) reconcile(ctx context.Context, store *api.Service
 	}
 	switch command.Type {
 	case scm.EnsurePreviewEnvironment:
+		admission, err := policy.Verify(command.TenantID, service.Deployment.Policy)
+		if err != nil {
+			return fmt.Errorf("service policy admission denied: %w", err)
+		}
 		env, err := store.GetEnvironment(command.Environment)
 		if err != nil && !errors.Is(err, api.ErrEnvironmentNotFound) {
 			return err
 		}
 		if errors.Is(err, api.ErrEnvironmentNotFound) {
-			env, err = r.orchestrator.Create(ctx, orchestrator.EnvironmentSpec{TenantID: command.TenantID, Name: command.Environment, Namespace: orchestrator.NamespaceForTenant(command.TenantID, command.Environment), Service: service.Name, TTL: r.previewTTL})
+			env, err = r.orchestrator.Create(ctx, orchestrator.EnvironmentSpec{TenantID: command.TenantID, Name: command.Environment, Namespace: orchestrator.NamespaceForTenant(command.TenantID, command.Environment), Service: service.Name, TTL: r.previewTTL, Admission: admission})
 			if err != nil {
 				return err
 			}

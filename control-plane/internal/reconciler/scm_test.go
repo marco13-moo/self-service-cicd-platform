@@ -145,15 +145,18 @@ func TestReconcilerCreatesAndDestroysPreviewIdempotently(t *testing.T) {
 	if fake.creates != 1 {
 		t.Fatalf("expected one create, got %d", fake.creates)
 	}
+	env, err := store.GetEnvironment("checkout-pr-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Spec.Admission.PolicyDigest == "" || env.Spec.Admission.NetworkIsolation != "default-deny-tenant-egress" {
+		t.Fatalf("reconciler did not persist policy admission: %#v", env.Spec.Admission)
+	}
 	if fake.deploys != 1 {
 		t.Fatalf("expected one deployment, got %d", fake.deploys)
 	}
 	if fake.lastDeployment.ImageRef != "registry.example.test/previews/default/checkout:abc1234" || fake.lastDeployment.ImageRepository != "registry.example.test/previews/default/checkout" || fake.lastDeployment.PreviewURL != "http://preview.t-default-checkout-pr-3.svc.cluster.local:8080" {
 		t.Fatalf("unexpected preview deployment: %#v", fake.lastDeployment)
-	}
-	env, err := store.GetEnvironment("checkout-pr-3")
-	if err != nil {
-		t.Fatal(err)
 	}
 	if env.Spec.Source.Repository != "acme/checkout" || env.Spec.Source.CloneURL != "https://bitbucket.org/acme/checkout" {
 		t.Fatalf("unexpected source identity: %#v", env.Spec.Source)
