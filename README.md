@@ -221,6 +221,7 @@ Architectural decisions and trust boundaries are documented in
 | `GET` | `/api/v1/admin/scm/commands` | Bearer-authenticated command inspection |
 | `POST` | `/api/v1/services` | Register a service |
 | `GET` | `/api/v1/services` | List registered services |
+| `PATCH` | `/api/v1/services/{name}` | Update lifecycle intent with optimistic concurrency |
 | `GET` | `/api/v1/catalog/services` | Tenant-scoped developer catalog |
 | `GET` | `/api/v1/services/{name}/diagnostics` | Actionable, secret-free service diagnostics |
 

@@ -593,6 +593,35 @@ func (s *ServiceStore) Get(name string) (Service, error) {
 	return svc, nil
 }
 
+func (s *ServiceStore) UpdateServiceLifecycle(name, lifecycle string, expectedVersion int64) (Service, error) {
+	if s.db != nil {
+		return s.updateServiceLifecyclePostgres(name, lifecycle, expectedVersion)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := s.stateKey(name)
+	service, ok := s.services[key]
+	if !ok {
+		return Service{}, ErrServiceNotFound
+	}
+	if expectedVersion != 0 && service.Version != expectedVersion {
+		return Service{}, ErrVersionConflict
+	}
+	service.Version++
+	service.Status.DesiredGeneration++
+	service.Status.DesiredState = lifecycle
+	service.Status.ObservedState = "pending"
+	service.Status.Message = "desired service declaration updated; reconciliation pending"
+	if service.Declaration != nil {
+		service.Declaration.Spec.Lifecycle = lifecycle
+	}
+	s.services[key] = service
+	if err := s.persistLocked(); err != nil {
+		return Service{}, err
+	}
+	return service, nil
+}
+
 func (s *ServiceStore) List() []Service {
 	if s.db != nil {
 		return s.listServicesPostgres()
