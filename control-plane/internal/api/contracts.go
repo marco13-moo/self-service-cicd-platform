@@ -46,3 +46,8 @@ type ServiceEgressRule struct {
 	Port     int    `json:"port"`
 	Protocol string `json:"protocol,omitempty"`
 }
+
+type UpdateServiceRequest struct {
+	Lifecycle       string `json:"lifecycle"`
+	ExpectedVersion int64  `json:"expected_version"`
+}

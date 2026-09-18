@@ -241,6 +241,35 @@ func (h *Handlers) DeleteService(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handlers) UpdateService(w http.ResponseWriter, r *http.Request) {
+	var req UpdateServiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+	switch req.Lifecycle {
+	case "active", "paused", "retired":
+	default:
+		http.Error(w, "lifecycle must be active, paused, or retired", http.StatusBadRequest)
+		return
+	}
+	service, err := h.scopedStore(r).UpdateServiceLifecycle(r.PathValue("name"), req.Lifecycle, req.ExpectedVersion)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrServiceNotFound):
+			http.Error(w, "service not found", http.StatusNotFound)
+		case errors.Is(err, ErrVersionConflict):
+			http.Error(w, "service changed concurrently; retry with fresh state", http.StatusConflict)
+		default:
+			h.logger.Error("failed to update service", zap.Error(err))
+			http.Error(w, "failed to update service", http.StatusInternalServerError)
+		}
+		return
+	}
+	h.audit(r, "service.updated", "service", service.Name, "succeeded", map[string]any{"lifecycle": req.Lifecycle, "generation": service.Status.DesiredGeneration})
+	writeJSON(w, http.StatusOK, service)
+}
+
 // CatalogService is deliberately presentation-oriented: it gives developers a
 // stable inventory view without exposing persistence documents or credentials.
 type CatalogService struct {

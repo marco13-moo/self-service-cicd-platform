@@ -142,3 +142,23 @@ func TestVersionedServiceDeclarationAndConflict(t *testing.T) {
 		t.Fatalf("duplicate registration returned %d, want %d", second.Code, http.StatusConflict)
 	}
 }
+
+func TestServiceLifecycleUpdateIsGenerationSafe(t *testing.T) {
+	store := NewServiceStore()
+	router := NewRouter(store, store, &fakeEnvironmentOrchestrator{}, orchestrator.NewArgoLinks("https://argo.example.test"), fakeRepositoryProvider{}, nil, zap.NewNop())
+	create := httptest.NewRecorder()
+	router.ServeHTTP(create, httptest.NewRequest(http.MethodPost, "/api/v1/services", bytes.NewBufferString(`{"name":"orders","owner":"commerce","repo_url":"https://github.com/acme/orders"}`)))
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create returned %d: %s", create.Code, create.Body.String())
+	}
+	update := httptest.NewRecorder()
+	router.ServeHTTP(update, httptest.NewRequest(http.MethodPatch, "/api/v1/services/orders", bytes.NewBufferString(`{"lifecycle":"paused","expected_version":1}`)))
+	if update.Code != http.StatusOK || !bytes.Contains(update.Body.Bytes(), []byte(`"desired_state":"paused"`)) {
+		t.Fatalf("update returned %d: %s", update.Code, update.Body.String())
+	}
+	stale := httptest.NewRecorder()
+	router.ServeHTTP(stale, httptest.NewRequest(http.MethodPatch, "/api/v1/services/orders", bytes.NewBufferString(`{"lifecycle":"active","expected_version":1}`)))
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale update returned %d, want %d", stale.Code, http.StatusConflict)
+	}
+}

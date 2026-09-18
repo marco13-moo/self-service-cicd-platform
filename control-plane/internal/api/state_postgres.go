@@ -36,6 +36,52 @@ func (s *ServiceStore) putServicePostgres(service Service) error {
 	return tx.Commit()
 }
 
+func (s *ServiceStore) updateServiceLifecyclePostgres(name, lifecycle string, expectedVersion int64) (Service, error) {
+	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+	if err != nil {
+		return Service{}, err
+	}
+	defer tx.Rollback()
+	var document []byte
+	var version int64
+	if err := tx.QueryRow(`SELECT document,version FROM services WHERE tenant_id=$1 AND name=$2 FOR UPDATE`, s.tenantID, name).Scan(&document, &version); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Service{}, ErrServiceNotFound
+		}
+		return Service{}, err
+	}
+	if expectedVersion != 0 && version != expectedVersion {
+		return Service{}, ErrVersionConflict
+	}
+	var service Service
+	if err := json.Unmarshal(document, &service); err != nil {
+		return Service{}, fmt.Errorf("decode service: %w", err)
+	}
+	service.Version = version + 1
+	service.Status.DesiredGeneration++
+	service.Status.DesiredState = lifecycle
+	service.Status.ObservedState = "pending"
+	service.Status.Message = "desired service declaration updated; reconciliation pending"
+	if service.Declaration != nil {
+		service.Declaration.Spec.Lifecycle = lifecycle
+	}
+	updated, err := json.Marshal(service)
+	if err != nil {
+		return Service{}, fmt.Errorf("encode service: %w", err)
+	}
+	result, err := tx.Exec(`UPDATE services SET document=$1,version=$2,updated_at=now() WHERE tenant_id=$3 AND name=$4 AND version=$5`, updated, service.Version, s.tenantID, name, version)
+	if err != nil {
+		return Service{}, err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return Service{}, ErrVersionConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return Service{}, err
+	}
+	return service, nil
+}
+
 func (s *ServiceStore) getServicePostgres(name string) (Service, error) {
 	tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
 	if err != nil {
