@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/policy"
 )
 
 const (
@@ -31,6 +33,7 @@ type Spec struct {
 	SLO          SLOIntent          `json:"slo,omitempty" yaml:"slo,omitempty"`
 	Compliance   ComplianceMetadata `json:"compliance,omitempty" yaml:"compliance,omitempty"`
 	Runtime      RuntimeIntent      `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	Policy       policy.Declaration `json:"policy,omitempty" yaml:"policy,omitempty"`
 	Lifecycle    string             `json:"lifecycle,omitempty" yaml:"lifecycle,omitempty"`
 }
 

@@ -32,6 +32,7 @@ func (r *CreateServiceRequest) Normalize() {
 		r.Deployment = &ServiceDeploymentRequest{
 			ContainerPort: r.Spec.Runtime.ContainerPort,
 			Dockerfile:    r.Spec.Runtime.Dockerfile,
+			Policy:        r.Spec.Policy,
 		}
 	}
 }
