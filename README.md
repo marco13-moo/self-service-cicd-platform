@@ -57,6 +57,10 @@ from separate terminals where indicated.
     --wait \
     --timeout 10m
   kubectl apply -n argo -f argo/workflowtemplates/
+   kubectl apply \
+     -f infra/k8s/argo-env-admin-sa.yaml \
+     -f infra/k8s/argo-env-admin-clusterrole.yaml \
+     -f infra/k8s/argo-env-admin-clusterrolebinding.yaml
   ```
 
 3. In terminal 1, start the control plane. Set `GITHUB_TOKEN` in the shell
