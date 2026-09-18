@@ -121,6 +121,16 @@ func (r *SCMCommandReconciler) ObserveDeployments(ctx context.Context, observedA
 		tenantStore := r.store.ForTenant(api.TenantID(env.TenantID))
 		if _, err := tenantStore.ObserveDeployment(env.Spec.Name, env.DeployWorkflow.Name, env.Spec.Source.Generation, phase, message, observedAt, evidence); err != nil {
 			observationErrors = append(observationErrors, fmt.Errorf("persist deployment observation for %s: %w", env.Spec.Name, err))
+			continue
+		}
+		serviceState, serviceMessage := "ready", "observed deployment is healthy"
+		if phase == "Failed" || phase == "Error" {
+			serviceState, serviceMessage = "degraded", message
+		} else if phase != "Succeeded" {
+			serviceState, serviceMessage = "reconciling", message
+		}
+		if err := tenantStore.ObserveService(env.Spec.Service, serviceState, serviceMessage); err != nil && !errors.Is(err, api.ErrServiceNotFound) {
+			observationErrors = append(observationErrors, fmt.Errorf("persist service observation for %s: %w", env.Spec.Service, err))
 		}
 	}
 	return errors.Join(observationErrors...)

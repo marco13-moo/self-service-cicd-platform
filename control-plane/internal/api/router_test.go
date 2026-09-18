@@ -162,3 +162,21 @@ func TestServiceLifecycleUpdateIsGenerationSafe(t *testing.T) {
 		t.Fatalf("stale update returned %d, want %d", stale.Code, http.StatusConflict)
 	}
 }
+
+func TestServiceObservationProjectsDeploymentState(t *testing.T) {
+	store := NewServiceStore()
+	service := NewService(CreateServiceRequest{Name: "orders", Owner: "commerce", RepoURL: "https://github.com/acme/orders"}, "go", scm.RepositoryIdentity{Provider: scm.ProviderGitHub, Workspace: "acme", Name: "orders"})
+	if err := store.Put(service); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ObserveService("orders", "ready", "observed deployment is healthy"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Get("orders")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.ObservedGeneration != got.Status.DesiredGeneration || got.Status.ObservedState != "ready" {
+		t.Fatalf("service status was not projected: %#v", got.Status)
+	}
+}
