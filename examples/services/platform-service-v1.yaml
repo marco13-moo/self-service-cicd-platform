@@ -1,0 +1,21 @@
+apiVersion: platform.service/v1
+kind: Service
+metadata:
+  name: orders-api
+spec:
+  owner: team-commerce
+  repository: https://github.com/acme/orders-api
+  dependencies:
+    - payments-api
+  slo:
+    availability: "99.9%"
+    latency: "p95<300ms"
+  compliance:
+    dataClass: internal
+    controls:
+      - SOC2-CC6
+  runtime:
+    environment: preview
+    containerPort: 8080
+    dockerfile: Dockerfile
+  lifecycle: active

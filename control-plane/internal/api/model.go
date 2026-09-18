@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/catalog"
 	"github.com/marco13-moo/self-service-cicd-platform/control-plane/internal/scm"
 )
 
@@ -21,6 +22,16 @@ type Service struct {
 	Deployment  ServiceDeployment      `json:"deployment"`
 	CreatedAt   time.Time              `json:"created_at"`
 	Version     int64                  `json:"version"`
+	Status      ServiceStatus          `json:"status"`
+	Declaration *catalog.Declaration   `json:"declaration,omitempty"`
+}
+
+type ServiceStatus struct {
+	DesiredGeneration  int64  `json:"desired_generation"`
+	ObservedGeneration int64  `json:"observed_generation"`
+	DesiredState       string `json:"desired_state"`
+	ObservedState      string `json:"observed_state"`
+	Message            string `json:"message,omitempty"`
 }
 
 type ServiceDeployment struct {
@@ -41,7 +52,7 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 		}
 		deployment.Egress = append([]ServiceEgressRule(nil), req.Deployment.Egress...)
 	}
-	return Service{
+	service := Service{
 		TenantID:    DefaultTenantID,
 		ID:          uuid.New(),
 		Name:        req.Name,
@@ -53,5 +64,21 @@ func NewService(req CreateServiceRequest, projectType string, repository scm.Rep
 		Deployment:  deployment,
 		CreatedAt:   time.Now().UTC(),
 		Version:     1,
+		Status: ServiceStatus{
+			DesiredGeneration: 1,
+			DesiredState:      "active",
+			ObservedState:     "pending",
+			Message:           "desired service declaration accepted; reconciliation pending",
+		},
 	}
+	if req.Spec != nil {
+		declaration := catalog.Declaration{
+			APIVersion: req.APIVersion,
+			Kind:       req.Kind,
+			Metadata:   catalog.Metadata{Name: req.Name},
+			Spec:       *req.Spec,
+		}
+		service.Declaration = &declaration
+	}
+	return service
 }

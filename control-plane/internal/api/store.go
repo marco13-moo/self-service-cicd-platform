@@ -565,6 +565,9 @@ func (s *ServiceStore) Put(service Service) error {
 	service.TenantID = s.tenantID
 	key := s.stateKey(service.Name)
 	previous, existed := s.services[key]
+	if existed {
+		return ErrVersionConflict
+	}
 	s.services[key] = service
 	if err := s.persistLocked(); err != nil {
 		if existed {
