@@ -191,6 +191,15 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 	}
 	service := NewService(req, projectType, repository)
 	service.TenantID = tenantFromRequest(r)
+	if err := h.scopedStore(r).CheckServiceQuota(); err != nil {
+		if errors.Is(err, ErrTenantQuotaExceeded) {
+			http.Error(w, "tenant service quota exceeded", http.StatusTooManyRequests)
+			return
+		}
+		h.logger.Error("failed to check service quota", zap.Error(err))
+		http.Error(w, "failed to check tenant quota", http.StatusInternalServerError)
+		return
+	}
 	if err := h.scopedStore(r).Put(service); err != nil {
 		if errors.Is(err, ErrVersionConflict) {
 			http.Error(w, "service already exists for this tenant", http.StatusConflict)
@@ -391,6 +400,15 @@ func (h *Handlers) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.audit(r, "environment.admission", "environment", req.Name, "denied", map[string]any{"reason": err.Error()})
 		http.Error(w, "environment denied by tenant policy: "+err.Error(), http.StatusForbidden)
+		return
+	}
+	if err := store.CheckEnvironmentQuota(); err != nil {
+		if errors.Is(err, ErrTenantQuotaExceeded) {
+			http.Error(w, "tenant environment quota exceeded", http.StatusTooManyRequests)
+			return
+		}
+		h.logger.Error("failed to check environment quota", zap.Error(err))
+		http.Error(w, "failed to check tenant quota", http.StatusInternalServerError)
 		return
 	}
 

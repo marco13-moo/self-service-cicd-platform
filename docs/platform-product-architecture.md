@@ -44,9 +44,9 @@ remain deployment-profile configuration, evidenced by the on-premise runbooks.
 
 1. **Foundation (this slice):** versioned catalog contract, tenant-scoped
    register/list/diagnose behavior, desired/observed status, ADR roadmap.
-2. **Convergence:** lifecycle intent updates now use durable, generation-safe
-   status transitions; follow-up work adds reconciliation queues, policy
-   decisions, and quota accounting.
+2. **Convergence:** lifecycle intent updates use durable, generation-safe
+   status transitions, and service/preview admission enforces tenant quotas;
+   follow-up work adds reconciliation queues and metered resource accounting.
 3. **Delivery:** GitOps promotion, progressive rollout policy, rollback
    evidence, and cost/SLO attribution.
 4. **Autonomy:** dependency-aware remediation and bounded automation with

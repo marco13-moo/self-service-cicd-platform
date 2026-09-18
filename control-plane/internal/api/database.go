@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS tenant_auths (
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
   CHECK (status IN ('active','suspended','offboarded'));
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS service_quota INTEGER NOT NULL DEFAULT 100 CHECK (service_quota >= 0);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS environment_quota INTEGER NOT NULL DEFAULT 1000 CHECK (environment_quota >= 0);
 
 ALTER TABLE tenant_auths ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_auths FORCE ROW LEVEL SECURITY;
