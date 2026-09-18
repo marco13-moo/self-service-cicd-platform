@@ -622,6 +622,31 @@ func (s *ServiceStore) UpdateServiceLifecycle(name, lifecycle string, expectedVe
 	return service, nil
 }
 
+// ObserveService projects execution-plane evidence into the service status.
+// The desired declaration remains unchanged and repeated observations are
+// idempotent.
+func (s *ServiceStore) ObserveService(name, state, message string) error {
+	if s.db != nil {
+		return s.observeServicePostgres(name, state, message)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := s.stateKey(name)
+	service, ok := s.services[key]
+	if !ok {
+		return ErrServiceNotFound
+	}
+	if service.Status.ObservedState == state && service.Status.Message == message &&
+		service.Status.ObservedGeneration == service.Status.DesiredGeneration {
+		return nil
+	}
+	service.Status.ObservedGeneration = service.Status.DesiredGeneration
+	service.Status.ObservedState = state
+	service.Status.Message = message
+	s.services[key] = service
+	return s.persistLocked()
+}
+
 func (s *ServiceStore) List() []Service {
 	if s.db != nil {
 		return s.listServicesPostgres()
