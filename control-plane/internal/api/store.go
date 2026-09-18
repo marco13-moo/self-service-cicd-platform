@@ -587,6 +587,15 @@ func (s *ServiceStore) Put(service Service) error {
 	if existed {
 		return ErrVersionConflict
 	}
+	serviceCount := 0
+	for _, candidate := range s.services {
+		if normalizeTenantID(TenantID(candidate.TenantID)) == normalizeTenantID(s.tenantID) {
+			serviceCount++
+		}
+	}
+	if serviceCount >= DefaultServiceQuota {
+		return ErrTenantQuotaExceeded
+	}
 	s.services[key] = service
 	if err := s.persistLocked(); err != nil {
 		if existed {
@@ -855,6 +864,17 @@ func (s *ServiceStore) PutEnvironment(env *orchestrator.Environment) error {
 	}
 	if !existed && env.Version != 0 {
 		return ErrVersionConflict
+	}
+	if !existed {
+		environmentCount := 0
+		for _, candidate := range s.environments {
+			if normalizeTenantID(TenantID(candidate.TenantID)) == normalizeTenantID(s.tenantID) {
+				environmentCount++
+			}
+		}
+		if environmentCount >= DefaultEnvironmentQuota {
+			return ErrTenantQuotaExceeded
+		}
 	}
 	env.Version++
 	s.environments[key] = cloneEnvironment(env)
