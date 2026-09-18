@@ -24,6 +24,12 @@ var ErrServiceNotFound = errors.New("service not found")
 var ErrCommandNotFound = errors.New("SCM command not found")
 var ErrVersionConflict = errors.New("state version conflict")
 var ErrTenantScope = errors.New("tenant scope mismatch")
+var ErrTenantQuotaExceeded = errors.New("tenant quota exceeded")
+
+const (
+	DefaultServiceQuota     = 100
+	DefaultEnvironmentQuota = 1000
+)
 
 // ServiceStore is a concurrency-safe repository for control-plane intent and
 // immutable workflow references. When path is non-empty, mutations are durable.
@@ -658,6 +664,50 @@ func (s *ServiceStore) ObserveService(name, state, message string) error {
 	service.Status.Message = message
 	s.services[key] = service
 	return s.persistLocked()
+}
+
+func (s *ServiceStore) CheckServiceQuota() error {
+	if s.db != nil {
+		var count, limit int
+		tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if err := tx.QueryRow(`SELECT (SELECT count(*) FROM services WHERE tenant_id=$1), service_quota FROM tenants WHERE id=$1`, s.tenantID).Scan(&count, &limit); err != nil {
+			return err
+		}
+		if count >= limit {
+			return ErrTenantQuotaExceeded
+		}
+		return tx.Commit()
+	}
+	if len(s.List()) >= DefaultServiceQuota {
+		return ErrTenantQuotaExceeded
+	}
+	return nil
+}
+
+func (s *ServiceStore) CheckEnvironmentQuota() error {
+	if s.db != nil {
+		var count, limit int
+		tx, err := beginTenantTx(context.Background(), s.db, s.tenantID, false)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if err := tx.QueryRow(`SELECT (SELECT count(*) FROM environments WHERE tenant_id=$1), environment_quota FROM tenants WHERE id=$1`, s.tenantID).Scan(&count, &limit); err != nil {
+			return err
+		}
+		if count >= limit {
+			return ErrTenantQuotaExceeded
+		}
+		return tx.Commit()
+	}
+	if len(s.ListEnvironments()) >= DefaultEnvironmentQuota {
+		return ErrTenantQuotaExceeded
+	}
+	return nil
 }
 
 func (s *ServiceStore) List() []Service {

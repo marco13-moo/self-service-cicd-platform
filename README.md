@@ -225,6 +225,9 @@ Architectural decisions and trust boundaries are documented in
 | `GET` | `/api/v1/catalog/services` | Tenant-scoped developer catalog |
 | `GET` | `/api/v1/services/{name}/diagnostics` | Actionable, secret-free service diagnostics |
 
+Service and preview admission enforce tenant quotas; quota exhaustion returns
+`429 Too Many Requests` without mutating desired state.
+
 Service registration accepts the versioned `platform.service/v1` declaration
 shape shown in [`examples/services/platform-service-v1.yaml`](examples/services/platform-service-v1.yaml).
 Responses include tenant-scoped desired and observed status; the legacy flat
