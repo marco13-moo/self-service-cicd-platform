@@ -200,6 +200,11 @@ func (h *Handlers) CreateService(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to check tenant quota", http.StatusInternalServerError)
 		return
 	}
+	if _, err := policy.Verify(string(service.TenantID), service.Deployment.Policy); err != nil {
+		h.audit(r, "service.policy_admission", "service", service.Name, "denied", map[string]any{"reason": err.Error()})
+		http.Error(w, "service policy denied: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	if err := h.scopedStore(r).Put(service); err != nil {
 		if errors.Is(err, ErrVersionConflict) {
 			http.Error(w, "service already exists for this tenant", http.StatusConflict)
